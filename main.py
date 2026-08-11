@@ -8,6 +8,7 @@ daily drawdown kill-switch that halts trading when losses exceed 3 %.
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 import time
@@ -123,6 +124,13 @@ def _notify_error_once(key: str, title: str, detail: str) -> None:
 def _explain_auth_error(exc: ccxt.BaseError) -> None:
     """Log actionable guidance for common Binance auth failures."""
     message = str(exc)
+    if "-1021" in message or "recvWindow" in message or "Timestamp" in message:
+        log.error(
+            "Binance rejected the request due to clock skew (code -1021). Fixes:\n"
+            "  1. On Azure/Linux VM: sudo timedatectl set-ntp true\n"
+            "  2. Restart the bot after pulling the latest config.py\n"
+            "     (adjustForTimeDifference is now enabled)."
+        )
     if "-2015" in message or "Invalid API-key" in message:
         log.error(
             "Binance rejected your API keys (code -2015). Common causes:\n"
@@ -255,6 +263,14 @@ def run_iteration(guard: DrawdownGuard) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="EMA paper-trading bot")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single check and exit (for GitHub Actions / cron).",
+    )
+    args = parser.parse_args()
+
     log.info("=" * 60)
     log.info("EMA Paper-Trading Bot starting (Binance SANDBOX mode)")
     log.info(
@@ -264,6 +280,7 @@ def main() -> None:
         config.RISK_PER_TRADE_PCT * 100,
         config.DAILY_MAX_DRAWDOWN_PCT * 100,
     )
+    log.info("Mode: %s", "single run" if args.once else "continuous loop")
     log.info("=" * 60)
 
     if not config.BINANCE_API_KEY or not config.BINANCE_SECRET_KEY:
@@ -274,6 +291,26 @@ def main() -> None:
 
     guard = DrawdownGuard()
 
+    if args.once:
+        _run_once(guard)
+        return
+
+    _run_startup_telegram()
+    _run_loop(guard)
+
+
+def _run_once(guard: DrawdownGuard) -> None:
+    """Single iteration for scheduled runs (GitHub Actions, cron)."""
+    try:
+        run_iteration(guard)
+    except Exception as exc:
+        log.exception("Unexpected error during scheduled run")
+        tg.notify_error("Scheduled run failed", str(exc))
+        sys.exit(1)
+
+
+def _run_startup_telegram() -> None:
+    """Send startup Telegram messages when running locally 24/7."""
     if tg.is_configured():
         log.info("Telegram alerts enabled.")
         startup_balance: float | None = None
@@ -283,7 +320,6 @@ def main() -> None:
             pass
         if tg.send("✅ Telegram connected — EMA bot alerts are active."):
             tg.notify_startup(startup_balance)
-            # Seed tracker so we don't re-alert the current candle on first loop.
             try:
                 df = data.fetch_ohlcv()
                 completed = data.get_completed_candles(df, count=1)
@@ -302,6 +338,9 @@ def main() -> None:
             "TELEGRAM_CHAT_ID in .env to enable."
         )
 
+
+def _run_loop(guard: DrawdownGuard) -> None:
+    """Continuous 60-second polling loop for local / VM hosting."""
     while True:
         try:
             run_iteration(guard)
