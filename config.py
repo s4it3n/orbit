@@ -31,12 +31,7 @@ exchange: ccxt.binance = ccxt.binance(
         "apiKey": BINANCE_API_KEY,
         "secret": BINANCE_SECRET_KEY,
         "enableRateLimit": True,
-        "options": {
-            "defaultType": "spot",
-            # Sync with Binance server time — fixes Azure/VM clock drift (-1021 errors).
-            "adjustForTimeDifference": True,
-            "recvWindow": 60000,
-        },
+        "options": {"defaultType": "spot"},
     }
 )
 exchange.set_sandbox_mode(True)
