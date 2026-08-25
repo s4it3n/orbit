@@ -15,6 +15,16 @@ CACHE_DIR = ROOT / "data_cache"
 
 OHLCV_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
 
+# Keep Yahoo's timezone cache under the project (service user may lack a home cache).
+try:
+    from yfinance.cache import set_tz_cache_location
+
+    _tz_cache = CACHE_DIR / "yf_tz"
+    _tz_cache.mkdir(parents=True, exist_ok=True)
+    set_tz_cache_location(str(_tz_cache))
+except Exception:
+    pass
+
 
 def _flatten_columns(frame: pd.DataFrame) -> pd.DataFrame:
     if isinstance(frame.columns, pd.MultiIndex):
