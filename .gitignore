@@ -16,6 +16,8 @@ settings.json
 orbit_state.json
 gold_state.json
 mnq_state.json
+gold_live.json
+mnq_live.json
 
 # Python
 __pycache__/

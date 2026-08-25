@@ -34,11 +34,10 @@ python run.py
 
 Open http://127.0.0.1:8080 — password from `ORBIT_DASHBOARD_PASSWORD` (default `1234`).
 
-Optional seed for Gold/MNQ dashboard cards:
-
-```bash
-python seed_bot_states.py
-```
+With `ORBIT_AUTOSTART=1` (cloud default), all three paper bots start:
+- **Orbit crypto** → Binance spot testnet
+- **Gold** → local test money marked to Yahoo `GC=F` 1h
+- **MNQ** → local test money marked to Yahoo MNQ/NQ/QQQ 15m
 
 ## Walk-forward / backtests (local machine only)
 

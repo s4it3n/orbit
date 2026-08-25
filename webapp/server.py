@@ -30,6 +30,9 @@ from backtest.config import BacktestConfig
 from backtest.engine import run_backtest
 from backtest.metrics import calculate_metrics
 from backtest.walk_forward import run_walk_forward
+from gold_bot import live as gold_live
+from mnq_bot import live as mnq_live
+from paper import loops as paper_loops
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -365,9 +368,12 @@ async def lifespan(app: FastAPI):
         state.save_settings({"bot_enabled": True})
         config.reload_settings()
         controller.start(engine.run_bot_loop)
-        state.append_log("Orbit autostart enabled — trading loop running", "INFO")
+        paper_loops.start("gold", gold_live.run_bot_loop)
+        paper_loops.start("mnq", mnq_live.run_bot_loop)
+        state.append_log("Autostart: crypto + gold + mnq paper loops", "INFO")
     yield
     controller.stop()
+    paper_loops.stop_all()
 
 
 app = FastAPI(title="Orbit", lifespan=lifespan)
@@ -439,7 +445,11 @@ def _portfolio_payload() -> dict[str, Any]:
     combined = sum(float(b.get("equity_usdt") or 0) for b in bots)
     avg_ret = sum(float(b.get("total_return_pct") or 0) for b in bots) / max(len(bots), 1)
     global_dd = min(float(b.get("max_drawdown_pct") or 0) for b in bots)
-    live = sum(1 for b in bots if not b.get("mock"))
+    live = sum(
+        1
+        for b in bots
+        if not b.get("mock") and str(b.get("status") or "").upper() not in {"IDLE", ""}
+    )
     health = "healthy" if live == 3 else "degraded" if live else "offline"
     return {
         "ok": True,
@@ -737,6 +747,50 @@ async def api_bot_resume() -> dict[str, Any]:
     return {"ok": True, "settings": saved}
 
 
+@app.post("/api/bots/{bot_id}/start")
+async def api_paper_bot_start(bot_id: str) -> dict[str, Any]:
+    bot_id = bot_id.lower().strip()
+    if bot_id == "orbit":
+        state.save_settings({"bot_enabled": True})
+        config.reload_settings()
+        return controller.start(engine.run_bot_loop)
+    if bot_id == "gold":
+        gold_live.set_enabled(True)
+        return paper_loops.start("gold", gold_live.run_bot_loop)
+    if bot_id == "mnq":
+        mnq_live.set_enabled(True)
+        return paper_loops.start("mnq", mnq_live.run_bot_loop)
+    return {"ok": False, "message": "Unknown bot"}
+
+
+@app.post("/api/bots/{bot_id}/stop")
+async def api_paper_bot_stop(bot_id: str) -> dict[str, Any]:
+    bot_id = bot_id.lower().strip()
+    if bot_id == "orbit":
+        return controller.stop()
+    if bot_id == "gold":
+        gold_live.set_enabled(False)
+        return paper_loops.stop("gold")
+    if bot_id == "mnq":
+        mnq_live.set_enabled(False)
+        return paper_loops.stop("mnq")
+    return {"ok": False, "message": "Unknown bot"}
+
+
+@app.post("/api/bots/{bot_id}/run-once")
+async def api_paper_bot_run_once(bot_id: str) -> dict[str, Any]:
+    bot_id = bot_id.lower().strip()
+    if bot_id == "orbit":
+        return controller.run_once(engine.run_single_iteration)
+    if bot_id == "gold":
+        payload = gold_live.run_iteration(force_refresh=True)
+        return {"ok": True, "status": "ran", "equity": payload.get("equity_usdt")}
+    if bot_id == "mnq":
+        payload = mnq_live.run_iteration(force_refresh=True)
+        return {"ok": True, "status": "ran", "equity": payload.get("equity_usdt")}
+    return {"ok": False, "message": "Unknown bot"}
+
+
 @app.get("/api/candles")
 async def api_candles(symbol: str | None = Query(default=None)) -> dict[str, Any]:
     try:
@@ -782,5 +836,10 @@ async def api_logs_stream() -> StreamingResponse:
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "bot_running": str(controller.is_running())}
+async def health() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "bot_running": controller.is_running(),
+        "gold_running": paper_loops.is_running("gold"),
+        "mnq_running": paper_loops.is_running("mnq"),
+    }
