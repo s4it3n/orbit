@@ -14,7 +14,9 @@ Environment=ORBIT_HOST=0.0.0.0
 Environment=ORBIT_PORT=8080
 Environment=ORBIT_DASHBOARD_PASSWORD=1234
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/orbit/.venv/bin/python /opt/orbit/run.py
+Environment=PYTHONPATH=/opt/orbit/.venv/lib64/python3.9/site-packages:/opt/orbit/.venv/lib/python3.9/site-packages
+# System python: SELinux blocks executing the venv symlink under /opt.
+ExecStart=/usr/bin/python3 /opt/orbit/run.py
 Restart=always
 RestartSec=8
 

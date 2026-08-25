@@ -7,3 +7,4 @@ jinja2
 pytest
 yfinance
 python-multipart
+eval_type_backport
