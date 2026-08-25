@@ -24,8 +24,17 @@ if [[ "$old" == "$new" ]]; then
 fi
 
 echo "Updating $old -> $new"
+# Keep secrets; .env is gitignored and must survive reset --hard.
+if [[ -f "$INSTALL_DIR/.env" ]]; then
+  chmod 600 "$INSTALL_DIR/.env"
+fi
 "$INSTALL_DIR/.venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
+install -m 644 "$INSTALL_DIR/deploy/orbit.service" /etc/systemd/system/orbit.service
+systemctl daemon-reload
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+if [[ -f "$INSTALL_DIR/.env" ]]; then
+  chmod 600 "$INSTALL_DIR/.env"
+fi
 chmod +x "$INSTALL_DIR/deploy/update.sh" "$INSTALL_DIR/deploy/install.sh" || true
 
 systemctl restart orbit.service

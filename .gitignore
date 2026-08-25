@@ -1,9 +1,21 @@
-# Secrets
+# Secrets — never commit these
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+id_rsa*
+id_ed25519*
+credentials.json
+secrets/
 
-# Runtime
+# Runtime / local settings
 bot_state.json
 settings.json
+orbit_state.json
+gold_state.json
+mnq_state.json
 
 # Python
 __pycache__/
@@ -21,9 +33,6 @@ Thumbs.db
 # Generated
 data_cache/
 backtest_output/
-orbit_state.json
-gold_state.json
-mnq_state.json
-web_dashboard/node_modules/
-web_dashboard/.next/
-web_dashboard/out/
+
+# Unused Next.js prototype (local leftover; production UI is webapp/)
+web_dashboard/

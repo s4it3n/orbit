@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import ccxt
 from dotenv import load_dotenv
 
 from . import state, universe
 
-load_dotenv()
+# Always load /opt/orbit/.env (or repo-root .env) — never rely on CWD.
+_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_ROOT / ".env", override=False)
+load_dotenv()  # optional local overrides from CWD
 
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
 BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "")

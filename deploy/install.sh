@@ -91,6 +91,8 @@ fi
 if ! grep -q '^ORBIT_DASHBOARD_PASSWORD=' "$INSTALL_DIR/.env"; then
   printf '\nORBIT_DASHBOARD_PASSWORD=1234\n' >> "$INSTALL_DIR/.env"
 fi
+# Secrets stay on the VM only; never world-readable.
+chmod 600 "$INSTALL_DIR/.env"
 
 install -m 644 "$INSTALL_DIR/deploy/orbit.service" /etc/systemd/system/orbit.service
 install -m 644 "$INSTALL_DIR/deploy/orbit-update.service" /etc/systemd/system/orbit-update.service
@@ -98,6 +100,7 @@ install -m 644 "$INSTALL_DIR/deploy/orbit-update.timer" /etc/systemd/system/orbi
 chmod +x "$INSTALL_DIR/deploy/update.sh" "$INSTALL_DIR/deploy/install.sh"
 
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+chmod 600 "$INSTALL_DIR/.env"
 chmod 755 "$INSTALL_DIR/deploy/update.sh"
 
 INVOKER="${SUDO_USER:-opc}"
@@ -119,5 +122,6 @@ echo "  1. sudo nano $INSTALL_DIR/.env   # Binance + Telegram"
 echo "  2. sudo systemctl restart orbit"
 echo "  3. Open VCN security list for TCP 22 and TCP 8080"
 echo "  4. Website: http://${PUB_IP:-YOUR_VM_IP}:8080"
-echo "     Password: 1234"
+echo "     Password: value of ORBIT_DASHBOARD_PASSWORD in .env"
 echo "  Logs: journalctl -u orbit -f"
+echo "  Note: $INSTALL_DIR/.env is chmod 600 and is not updated by git pulls."

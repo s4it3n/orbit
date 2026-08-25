@@ -1,50 +1,57 @@
-# Multi-Bot Trading Desk
+# Orbit
 
-Four modules live in this repo:
+Multi-bot paper trading desk. Production UI is the FastAPI app in `webapp/` (not a separate frontend).
 
 | Module | Path | Role |
 |---|---|---|
-| Orbit | `orbit/` | ACCEPTED 1D crypto momentum (paper / Binance testnet) |
-| Gold | `gold_bot/` | XAU/USD 1H Donchian + ATR squeeze breakout |
-| MNQ | `mnq_bot/` | Micro Nasdaq 15m opening-range breakout |
-| Dashboard | `web_dashboard/` | Next.js multi-bot control panel |
+| Orbit | `orbit/` | ACCEPTED 1D crypto momentum (Binance **spot testnet**) |
+| Gold | `gold_bot/` | XAU/USD 1H breakout |
+| MNQ | `mnq_bot/` | Micro Nasdaq 15m ORB |
+| Dashboard | `webapp/` | Password-gated control panel on `:8080` |
+| Backtests | `backtest/` | Shared engine + walk-forward helpers |
 
-## Seed bot state JSON
+## Secrets (important)
+
+API keys live **only** in a local `.env` file (see `.env.example`). That file is gitignored and must never be committed.
+
+```bash
+cp .env.example .env
+# edit .env with Binance testnet + Telegram values
+```
+
+If this repo is public, treat any key that was ever pasted into chat, issues, or commits as compromised and **rotate** it.
+
+## Local run
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # then fill keys
+python run.py
+```
+
+Open http://127.0.0.1:8080 — password from `ORBIT_DASHBOARD_PASSWORD` (default `1234`).
+
+Optional seed for Gold/MNQ dashboard cards:
 
 ```bash
 python seed_bot_states.py
 ```
 
-Writes `orbit_state.json`, `gold_state.json`, and `mnq_state.json` at the repo root for the dashboard API.
+## Walk-forward / backtests (local machine only)
 
-## Orbit paper bot
-
-```bash
-python run.py
-```
-
-Banner shows **ACCEPTED (9/9 Gates Passed)**. Each cycle also refreshes `orbit_state.json`.
-
-## Gold / MNQ engines
+Do **not** run these on the 1 GB Always Free VM.
 
 ```bash
-python -m gold_bot.engine
-python -m mnq_bot.engine
+python run_walk_forward.py
+python run_walk_forward_gold.py
+python run_walk_forward_mnq.py
 ```
-
-## Unified dashboard
-
-```bash
-cd web_dashboard
-npm run dev
-```
-
-Open http://localhost:3000 — polls `/api/bots` every 5 seconds.
 
 ## Oracle Cloud (24/7)
 
-Click-by-click: [deploy/README.md](deploy/README.md).
+See [deploy/README.md](deploy/README.md).
 
-Website: `http://YOUR_VM_IP:8080` · password **1234**.
-
-
+Public site: `http://YOUR_VM_IP:8080`
