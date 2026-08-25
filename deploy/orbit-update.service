@@ -1,0 +1,6 @@
+[Unit]
+Description=Pull Orbit from GitHub and restart if changed
+
+[Service]
+Type=oneshot
+ExecStart=/opt/orbit/deploy/update.sh

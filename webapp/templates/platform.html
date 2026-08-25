@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orbit · Trading Platform</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2311141c'/%3E%3Ccircle cx='50' cy='50' r='28' fill='none' stroke='%535b9fd4' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='8' fill='%535b9fd4'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0e14;--panel:#141922;--border:#252b38;--text:#e8ecf4;--muted:#8b93a7;
+  --green:#3dba7a;--red:#e05a5a;--amber:#d4a24c;--blue:#5b9fd4;--mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}html,body{margin:0;padding:0}
+body{
+  font-family:'DM Sans',system-ui,sans-serif;color:var(--text);min-height:100vh;
+  background:
+    radial-gradient(900px 420px at 8% -8%, #1a3a5522, transparent 55%),
+    radial-gradient(700px 380px at 92% 0%, #1a3d2f18, transparent 50%),
+    var(--bg);
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1120px;margin:0 auto;padding:28px 20px 56px}
+header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:28px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:14px}
+.mark{width:42px;height:42px;border-radius:12px;background:#1a2030;border:1px solid var(--border);display:grid;place-items:center}
+.brand h1{margin:0;font-size:1.55rem;font-weight:700;letter-spacing:-.03em}
+.brand .sub{color:var(--muted);font-size:.86rem;margin-top:3px}
+.health{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);background:var(--panel);font-size:.78rem;font-weight:600}
+.health .dot{width:7px;height:7px;border-radius:50%}
+.health.ok .dot{background:var(--green)}.health.warn .dot{background:var(--amber)}.health.bad .dot{background:var(--red)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+@media(max-width:800px){.kpis{grid-template-columns:1fr 1fr}}
+.kpi{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
+.kpi-l{font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;margin-bottom:8px}
+.kpi-v{font-family:var(--mono);font-size:1.28rem;font-weight:600}
+.sec{display:flex;align-items:baseline;justify-content:space-between;margin:8px 0 14px}
+.sec h2{margin:0;font-size:1rem;font-weight:700}
+.sec p{margin:0;color:var(--muted);font-size:.82rem}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:920px){.grid{grid-template-columns:1fr}}
+.card{
+  display:flex;flex-direction:column;gap:14px;padding:18px;border-radius:16px;
+  background:var(--panel);border:1px solid var(--border);transition:border-color .15s, transform .15s;
+}
+.card:hover{border-color:#3a455c;transform:translateY(-1px)}
+.card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.card-title{font-weight:700;font-size:.98rem}
+.card-meta{color:var(--muted);font-size:.78rem;margin-top:3px}
+.badge{display:inline-flex;padding:4px 9px;border-radius:999px;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border:1px solid transparent}
+.badge.PAPER{background:#5b9fd418;color:var(--blue);border-color:#5b9fd444}
+.badge.ACTIVE{background:#3dba7a18;color:var(--green);border-color:#3dba7a44}
+.badge.IDLE{background:#8b93a718;color:var(--muted);border-color:#8b93a744}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.m .l{font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+.m .v{font-family:var(--mono);font-size:.9rem;margin-top:3px}
+.pos{color:var(--green)}.neg{color:var(--red)}
+.spark{height:52px;width:100%;background:#0a0d13;border-radius:10px;overflow:hidden}
+.spark svg{width:100%;height:100%;display:block}
+.actions{display:flex;gap:8px;margin-top:auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;border-radius:9px;border:1px solid var(--border);background:#0e121a;color:var(--text);font:600 .78rem 'DM Sans',system-ui,sans-serif;cursor:pointer}
+.btn.primary{background:var(--blue);border-color:transparent;color:#0b1220}
+.btn:hover{filter:brightness(1.08)}
+.note{margin-top:22px;padding:14px 16px;border-radius:12px;border:1px solid var(--border);background:#121722;color:var(--muted);font-size:.82rem;line-height:1.5}
+.note strong{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#5b9fd4" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="#5b9fd4" stroke="none"/></svg>
+      </div>
+      <div>
+        <h1>Orbit</h1>
+        <div class="sub">Multi-bot trading platform · manage crypto, gold, and Nasdaq strategies</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div id="health" class="health warn"><span class="dot"></span><span id="healthText">Checking…</span></div>
+      <a href="/logout" style="color:var(--muted);font-size:.8rem;font-weight:600">Sign out</a>
+    </div>
+  </header>
+
+  <section class="kpis">
+    <div class="kpi"><div class="kpi-l">Combined equity</div><div class="kpi-v" id="kEquity">—</div></div>
+    <div class="kpi"><div class="kpi-l">Avg return</div><div class="kpi-v" id="kReturn">—</div></div>
+    <div class="kpi"><div class="kpi-l">Global max DD</div><div class="kpi-v" id="kDD">—</div></div>
+    <div class="kpi"><div class="kpi-l">Bots live</div><div class="kpi-v" id="kLive">—</div></div>
+  </section>
+
+  <div class="sec">
+    <h2>Your bots</h2>
+    <p>Open a bot to view performance, trades, and controls</p>
+  </div>
+  <section class="grid" id="botGrid"></section>
+
+  <div class="note">
+    <strong>Orbit 1D Crypto</strong> is the ACCEPTED walk-forward book (9/9 gates): 1 slot × 30%, daily bars,
+    chop filter (50 EMA + 20 EMA + 14d ROC &gt; 0 + RSI &gt; 50), 5-day shock/drift, heat &amp; session lock.
+    Gold and MNQ run as standalone paper engines; refresh their state with
+    <code style="font-family:var(--mono);font-size:.78rem">python seed_bot_states.py</code>.
+  </div>
+</div>
+<script>
+function fmtPct(n){
+  const x = Number(n||0);
+  return (x>0?'+':'') + x.toFixed(1) + '%';
+}
+function fmtMoney(n){
+  return '$' + Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0});
+}
+function spark(points){
+  const vals = (points||[]).map(p=>Number(p.equity)).filter(Number.isFinite);
+  if(vals.length<2) return '<svg></svg>';
+  const min=Math.min(...vals), max=Math.max(...vals), span=Math.max(max-min,1e-9);
+  const w=300,h=52;
+  const d=vals.map((v,i)=>{
+    const x=i/(vals.length-1)*w;
+    const y=h-4-((v-min)/span)*(h-8);
+    return `${i?'L':'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="#5b9fd4" stroke-width="2"/></svg>`;
+}
+function card(bot){
+  const href = bot.bot_id==='orbit' ? '/crypto' : `/bot/${bot.bot_id}`;
+  const retClass = Number(bot.total_return_pct)>=0 ? 'pos' : 'neg';
+  return `<a class="card" href="${href}">
+    <div class="card-top">
+      <div>
+        <div class="card-title">${bot.bot_name}</div>
+        <div class="card-meta">${bot.asset_class} · ${bot.timeframe}${bot.mock?' · mock':''}</div>
+      </div>
+      <span class="badge ${bot.status}">${bot.status}</span>
+    </div>
+    <div class="metrics">
+      <div class="m"><div class="l">Return</div><div class="v ${retClass}">${fmtPct(bot.total_return_pct)}</div></div>
+      <div class="m"><div class="l">Win rate</div><div class="v">${Number(bot.win_rate_pct||0).toFixed(1)}%</div></div>
+      <div class="m"><div class="l">Max DD</div><div class="v neg">${Number(bot.max_drawdown_pct||0).toFixed(1)}%</div></div>
+    </div>
+    <div class="spark">${spark(bot.equity_curve)}</div>
+    <div class="actions">
+      <span class="btn primary">Open desk</span>
+      <span class="btn">Sharpe ${Number(bot.sharpe_ratio||0).toFixed(2)}</span>
+    </div>
+  </a>`;
+}
+async function refresh(){
+  const res = await fetch('/api/bots',{cache:'no-store'});
+  const data = await res.json();
+  document.getElementById('kEquity').textContent = fmtMoney(data.combined_equity);
+  document.getElementById('kReturn').textContent = fmtPct(data.monthly_pnl_pct);
+  document.getElementById('kDD').textContent = Number(data.global_max_dd_pct||0).toFixed(1)+'%';
+  const live = (data.bots||[]).filter(b=>b.status!=='IDLE').length;
+  document.getElementById('kLive').textContent = `${live}/3`;
+  const h = document.getElementById('health');
+  const ht = document.getElementById('healthText');
+  h.className = 'health ' + (data.system_health==='healthy'?'ok':data.system_health==='degraded'?'warn':'bad');
+  ht.textContent = 'System ' + data.system_health;
+  document.getElementById('botGrid').innerHTML = (data.bots||[]).map(card).join('');
+}
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

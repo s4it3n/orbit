@@ -1,17 +1,29 @@
-# Secrets — never commit API keys
+# Secrets
 .env
+
+# Runtime
+bot_state.json
+settings.json
 
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
+.pytest_cache/
 .venv/
 venv/
-env/
 
 # IDE / OS
 .vscode/
 .idea/
-*.swp
 .DS_Store
 Thumbs.db
+
+# Generated
+data_cache/
+backtest_output/
+orbit_state.json
+gold_state.json
+mnq_state.json
+web_dashboard/node_modules/
+web_dashboard/.next/
+web_dashboard/out/

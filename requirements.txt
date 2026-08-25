@@ -1,3 +1,9 @@
 ccxt
 pandas
 python-dotenv
+fastapi
+uvicorn[standard]
+jinja2
+pytest
+yfinance
+python-multipart

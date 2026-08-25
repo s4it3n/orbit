@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orbit · Bot Detail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0e14;--panel:#141922;--border:#252b38;--text:#e8ecf4;--muted:#8b93a7;--green:#3dba7a;--red:#e05a5a;--blue:#5b9fd4;--mono:'JetBrains Mono',monospace}
+*{box-sizing:border-box}body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--text)}
+.wrap{max-width:1000px;margin:0 auto;padding:24px 18px 48px}
+a{color:var(--muted);text-decoration:none}a:hover{color:var(--text)}
+h1{margin:10px 0 4px;font-size:1.6rem} .sub{color:var(--muted);font-size:.88rem;margin-bottom:18px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:700px){.kpis{grid-template-columns:1fr 1fr}}
+.kpi{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px}
+.kpi .l{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.kpi .v{font-family:var(--mono);font-size:1.15rem;margin-top:6px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px}
+.panel h2{margin:0 0 10px;font-size:.92rem}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th,td{padding:8px;border-bottom:1px solid #1c2130;text-align:left}
+th{color:var(--muted);font-size:.68rem;text-transform:uppercase}
+.term{background:#0a0c11;border-radius:8px;max-height:260px;overflow:auto;padding:10px;font-family:var(--mono);font-size:.74rem;line-height:1.55;color:#b8c0d0}
+.badge{display:inline-flex;padding:4px 9px;border-radius:999px;font-size:.7rem;font-weight:700;background:#5b9fd418;color:var(--blue)}
+.pos{color:var(--green)}.neg{color:var(--red)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="/">← All bots</a>
+  · <a href="/logout">Sign out</a>
+  <h1 id="name">Bot</h1>
+  <div class="sub"><span id="meta"></span> · <span class="badge" id="status">—</span></div>
+  <div class="kpis">
+    <div class="kpi"><div class="l">Return</div><div class="v" id="ret">—</div></div>
+    <div class="kpi"><div class="l">Sharpe</div><div class="v" id="sharpe">—</div></div>
+    <div class="kpi"><div class="l">Max DD</div><div class="v" id="dd">—</div></div>
+    <div class="kpi"><div class="l">Win rate</div><div class="v" id="wr">—</div></div>
+  </div>
+  <div class="panel">
+    <h2>Recent trades</h2>
+    <table>
+      <thead><tr><th>When</th><th>Side</th><th>Symbol</th><th>PnL</th></tr></thead>
+      <tbody id="trades"></tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Logs</h2>
+    <div class="term" id="logs"></div>
+  </div>
+</div>
+<script>
+const id = location.pathname.split('/').pop();
+async function load(){
+  const res = await fetch('/api/bots?id='+encodeURIComponent(id),{cache:'no-store'});
+  const data = await res.json();
+  if(!data.ok){document.getElementById('name').textContent='Bot not found';return}
+  const b=data.bot;
+  document.getElementById('name').textContent=b.bot_name;
+  document.getElementById('meta').textContent=`${b.asset_class} · ${b.timeframe}`;
+  document.getElementById('status').textContent=b.status;
+  const ret=Number(b.total_return_pct||0);
+  document.getElementById('ret').textContent=(ret>0?'+':'')+ret.toFixed(1)+'%';
+  document.getElementById('ret').className='v '+(ret>=0?'pos':'neg');
+  document.getElementById('sharpe').textContent=Number(b.sharpe_ratio||0).toFixed(2);
+  document.getElementById('dd').textContent=Number(b.max_drawdown_pct||0).toFixed(1)+'%';
+  document.getElementById('wr').textContent=Number(b.win_rate_pct||0).toFixed(1)+'%';
+  const rows=(b.recent_trades||[]).slice(0,15).map(t=>{
+    const when=(t.exit_time||t.entry_time||t.time||'').toString().slice(0,19);
+    const pnl=t.pnl_usdt==null?'—':Number(t.pnl_usdt).toFixed(2);
+    const cls=Number(t.pnl_usdt||0)>=0?'pos':'neg';
+    return `<tr><td>${when}</td><td>${t.side||t.type||t.reason||'—'}</td><td>${t.symbol||'—'}</td><td class="${cls}">${pnl}</td></tr>`;
+  }).join('') || '<tr><td colspan="4">No trades yet</td></tr>';
+  document.getElementById('trades').innerHTML=rows;
+  document.getElementById('logs').innerHTML=(b.logs||[]).slice(-40).map(l=>
+    `<div>${(l.time||'').toString().slice(11,19)} ${l.level||'INFO'} ${l.message||''}</div>`
+  ).join('') || 'No logs';
+}
+load(); setInterval(load,5000);
+</script>
+</body>
+</html>

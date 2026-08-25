@@ -1,0 +1,22 @@
+[Unit]
+Description=Orbit trading platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=orbit
+Group=orbit
+WorkingDirectory=/opt/orbit
+Environment=ORBIT_HEADLESS=1
+Environment=ORBIT_AUTOSTART=1
+Environment=ORBIT_HOST=0.0.0.0
+Environment=ORBIT_PORT=8080
+Environment=ORBIT_DASHBOARD_PASSWORD=1234
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/orbit/.venv/bin/python /opt/orbit/run.py
+Restart=always
+RestartSec=8
+
+[Install]
+WantedBy=multi-user.target

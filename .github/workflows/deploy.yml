@@ -1,0 +1,27 @@
+name: Deploy to Oracle Cloud
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and update
+        env:
+          HOST: ${{ secrets.OCI_HOST }}
+          USER: ${{ secrets.OCI_USER }}
+          KEY: ${{ secrets.OCI_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "Skipping deploy — set GitHub secrets OCI_HOST, OCI_USER, OCI_SSH_KEY."
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/id_ed25519 \
+            "$USER@$HOST" 'sudo /opt/orbit/deploy/update.sh'
