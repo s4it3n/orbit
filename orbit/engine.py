@@ -286,6 +286,37 @@ def _total_equity(
     return equity
 
 
+def _paper_display_equity(raw_equity: float | None) -> float:
+    """Map exchange equity into the ~$ORBIT_PAPER_EQUITY paper book."""
+    paper_cap = float(config.ORBIT_PAPER_EQUITY)
+    if raw_equity is None:
+        return paper_cap
+    live = bot_state.load_state()
+    raw_anchor = live.get("exchange_equity_anchor")
+    if raw_anchor is None:
+        # Until the first sync anchors, never advertise the faucet balance.
+        return min(float(raw_equity), paper_cap)
+    anchor = float(raw_anchor)
+    if anchor > 0:
+        return max(0.0, paper_cap + (float(raw_equity) - anchor))
+    return min(float(raw_equity), paper_cap)
+
+
+def _paper_equity_after_trade(
+    book: list[dict],
+    frames: dict[str, pd.DataFrame] | None = None,
+) -> float:
+    try:
+        snapshot = execution.fetch_balances(config.exchange, config.REGIME_SYMBOL)
+        raw = _total_equity(snapshot, book, frames)
+        return _paper_display_equity(raw)
+    except ccxt.BaseError:
+        eq = bot_state.load_state().get("equity_usdt")
+        if eq is not None:
+            return float(eq)
+        return float(config.ORBIT_PAPER_EQUITY)
+
+
 def _btc_lookback_return(frame: pd.DataFrame, lookback: int) -> float:
     try:
         completed = data.get_completed_candles(frame, count=lookback + 1)
@@ -368,8 +399,6 @@ def _sync_state(
         equity = _total_equity(snapshot, book, frames, price)
         # Map testnet balance into a $ORBIT_PAPER_EQUITY paper book via an anchor.
         # First sync (or missing anchor) sets the baseline so UI starts near $1k.
-        from . import state as bot_state
-
         live = bot_state.load_state()
         raw_anchor = live.get("exchange_equity_anchor")
         if raw_anchor is None and equity is not None:
@@ -463,7 +492,14 @@ def _exit_long(
         f"SELL {symbol} {fill.quantity:.8f} @ {data.round_price(fill.average_price)} ({reason})",
         {"pnl_usdt": pnl, "order_id": fill.order_id, "symbol": symbol},
     )
-    tg.notify_exit(symbol, fill.quantity, fill.average_price, pnl, reason)
+    tg.notify_exit(
+        symbol,
+        fill.quantity,
+        fill.average_price,
+        pnl,
+        reason,
+        equity=_paper_equity_after_trade(remaining, frames=None),
+    )
     log.info(
         "Long closed (%s): %s %.8f @ %.8f, PnL≈%.2f",
         reason, symbol, fill.quantity, fill.average_price, pnl,
@@ -537,7 +573,14 @@ def _reduce_long(
         f"SELL {symbol} {fill.quantity:.8f} @ {data.round_price(fill.average_price)} ({reason})",
         {"pnl_usdt": pnl, "order_id": fill.order_id, "symbol": symbol},
     )
-    tg.notify_exit(symbol, fill.quantity, fill.average_price, pnl, reason)
+    tg.notify_exit(
+        symbol,
+        fill.quantity,
+        fill.average_price,
+        pnl,
+        reason,
+        equity=_paper_equity_after_trade(updated, frames=None),
+    )
     log.info(
         "Take-profit filled: %s %.8f @ %.8f, PnL≈%.2f",
         symbol, fill.quantity, fill.average_price, pnl,
@@ -643,7 +686,10 @@ def _enter_long(
             "score": candidate.score,
         },
     )
-    tg.notify_entry(position)
+    tg.notify_entry(
+        position,
+        equity=_paper_equity_after_trade(book, frames),
+    )
     log.info(
         "Long opened: %s %.8f @ %.8f, initial stop %.8f, TP %.8f (%s)",
         candidate.symbol, fill.quantity, fill.average_price, initial_stop,
@@ -925,14 +971,8 @@ def run_iteration(guard: DrawdownGuard) -> None:
 
     global _last_telegram_candle_ts
     if regime_latest["timestamp"] != _last_telegram_candle_ts:
+        # Track candle change for loop logic; daily Telegram digest is disabled.
         _last_telegram_candle_ts = regime_latest["timestamp"]
-        tg.notify_daily(
-            candle_time=str(candle_ts),
-            risk_on=regime.macro_on,
-            held=held[0] if held else None,
-            top=targets[0].symbol if targets else None,
-            equity=equity,
-        )
 
     signal = None
     try:
@@ -1128,13 +1168,9 @@ def run_bot_loop(stop_event: threading.Event | None = None) -> None:
     guard = get_guard()
 
     if tg.is_configured():
-        log.info("Telegram alerts enabled (important events only).")
-        startup_balance: float | None = None
-        try:
-            startup_balance = fetch_usdt_balance()
-        except ccxt.BaseError:
-            pass
-        tg.notify_startup(startup_balance)
+        log.info("Telegram alerts enabled (trade fills + failures).")
+        # Never pass raw testnet faucet balance — paper book only.
+        tg.notify_startup(tg.paper_equity())
 
     try:
         while stop_event is None or not stop_event.is_set():

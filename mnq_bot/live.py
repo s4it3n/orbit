@@ -194,16 +194,17 @@ def _close_lot(
     account["position"] = None
     append_log(account, f"EXIT {side} @ {exit_px:.2f} ({reason}) pnl={pnl:.2f}")
     try:
-        from orbit.notify import notify_paper_exit
+        from orbit.notify import MNQ_BOT, notify_paper_exit
 
         notify_paper_exit(
-            "MNQ",
+            MNQ_BOT,
             side=side,
             symbol="MNQ",
             qty=qty,
             price=exit_px,
             pnl=pnl,
             reason=reason,
+            equity=float(account["cash"]),
         )
     except Exception:
         pass
@@ -288,15 +289,16 @@ def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: mnq_strate
                     f"stop={signal.stop:.2f} tp={signal.take_profit:.2f}{note}",
                 )
                 try:
-                    from orbit.notify import notify_paper_entry
+                    from orbit.notify import MNQ_BOT, notify_paper_entry
 
                     notify_paper_entry(
-                        "MNQ",
+                        MNQ_BOT,
                         side=signal.side,
                         symbol="MNQ",
                         qty=float(qty),
                         price=signal.entry,
                         stop=signal.stop,
+                        equity=_mark(account, close),
                     )
                 except Exception:
                     pass
