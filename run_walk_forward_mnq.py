@@ -27,7 +27,10 @@ def main() -> None:
     agg = result["aggregate"]
     print("\nOOS return %", round(agg["return_pct"], 2))
     print("Sharpe", round(agg["sharpe"], 3), "DD", round(agg["max_drawdown_pct"], 2))
+    print("PF", round(agg["profit_factor"], 3), "win%", round(agg["win_rate_pct"], 1))
     print("Trades", agg["trade_count"], "folds", agg["fold_count"])
+    print("OR window fold counts:", agg.get("or_window_fold_counts"))
+    print("Preferred OR duration (min):", agg.get("preferred_or_duration_minutes"))
     for gate, passed in result["gates"].items():
         print(f"  [{'PASS' if passed else 'FAIL'}] {gate}")
     print("VERDICT:", "ACCEPTED" if result["accepted"] else "REJECTED")
