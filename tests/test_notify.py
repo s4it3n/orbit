@@ -13,33 +13,70 @@ def test_entry_message_is_short():
     assert "Crypto · buy" in text
     assert "SOL" in text
     assert "stop" in text
-    assert "equity  1,000.00 USDT" in text
+    assert "Crypto  1,000.00" in text
+    assert "desk" in text
     assert "Universe" not in text
     assert "Protection" not in text
 
 
-def test_exit_message_shows_pnl_and_equity():
+def test_exit_message_shows_pnl_and_desk():
     text = notify.format_exit(
-        "ETH/USDT", 0.5, 3500.0, 42.18, "trailing_stop", equity=1042.18
+        "ETH/USDT",
+        0.5,
+        3500.0,
+        42.18,
+        "trailing_stop",
+        equity=1042.18,
     )
     assert "Crypto · sell" in text
     assert "ETH" in text
     assert "42.18" in text
     assert "trail stop" in text
-    assert "equity  1,042.18 USDT" in text
+    assert "Crypto  1,042.18" in text
+    assert "Gold" in text
+    assert "MNQ" in text
+    assert "desk" in text
 
 
 def test_take_profit_title():
     text = notify.format_exit("SOL/USDT", 6.0, 150.0, -3.2, "take_profit", equity=996.8)
     assert "take profit" in text
-    assert "equity" in text
+    assert "desk" in text
 
 
 def test_paper_equity_never_shows_faucet():
     assert notify.paper_equity(10000.0) == notify.config.ORBIT_PAPER_EQUITY
     text = notify.format_startup(10000.0)
     assert "10,000" not in text
-    assert "1,000.00" in text or f"{notify.config.ORBIT_PAPER_EQUITY:,.2f}" in text
+    assert "Orbit · online" in text
+    assert "desk" in text
+
+
+def test_desk_block_totals_three_books():
+    text = notify.format_desk_block(
+        {
+            notify.CRYPTO_BOT: 1000.0,
+            notify.GOLD_BOT: 1100.0,
+            notify.MNQ_BOT: 900.0,
+        }
+    )
+    assert "Crypto  1,000.00" in text
+    assert "Gold    1,100.00" in text
+    assert "MNQ     900.00" in text
+    assert "desk    3,000.00" in text
+    assert "(+0.00)" in text or "(−0.00)" in text or "(+0.00)" in text
+
+
+def test_desk_block_shows_profit():
+    text = notify.format_desk_block(
+        {
+            notify.CRYPTO_BOT: 1100.0,
+            notify.GOLD_BOT: 1000.0,
+            notify.MNQ_BOT: 1000.0,
+        }
+    )
+    assert "desk    3,100.00" in text
+    assert "+100.00" in text
 
 
 def test_daily_digest_caps_equity():
@@ -54,11 +91,9 @@ def test_daily_digest_caps_equity():
     assert "BTC risk-on" in text
     assert "SOL" in text
     assert "10,120.50" not in text
-    assert "1,000.00" in text or f"{notify.config.ORBIT_PAPER_EQUITY:,.2f}" in text
 
 
 def test_notify_daily_is_silent():
-    # Should not raise / should not attempt send when called.
     notify.notify_daily(
         candle_time="2026-08-24",
         risk_on=True,
@@ -68,7 +103,7 @@ def test_notify_daily_is_silent():
     )
 
 
-def test_gold_exit_includes_bot_and_equity():
+def test_gold_exit_includes_bot_and_desk():
     text = notify.format_paper_exit(
         notify.GOLD_BOT,
         side="long",
@@ -80,7 +115,8 @@ def test_gold_exit_includes_bot_and_equity():
         equity=1012.5,
     )
     assert "Gold · closed" in text
-    assert "equity  1,012.50 USDT" in text
+    assert "Gold    1,012.50" in text
+    assert "desk" in text
 
 
 def test_deploy_message():

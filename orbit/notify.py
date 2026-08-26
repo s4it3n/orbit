@@ -1,21 +1,24 @@
 """Telegram alerts for trades and material failures.
 
-Every filled trade names the bot and the paper equity after the fill.
-Daily digests are not sent — they were noisy and showed raw testnet balances.
+Every filled trade names the bot, then shows all three paper books and the
+combined desk equity / P&L. Daily digests are not sent.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from . import config, data
 
 log = logging.getLogger("orbit.telegram")
 
 _API_URL = "https://api.telegram.org/bot{token}/sendMessage"
+ROOT = Path(__file__).resolve().parent.parent
 
 _EXIT_LABELS = {
     "take_profit": "take profit",
@@ -34,6 +37,12 @@ _EXIT_LABELS = {
 CRYPTO_BOT = "Crypto"
 GOLD_BOT = "Gold"
 MNQ_BOT = "MNQ"
+
+_STATE_FILES = {
+    CRYPTO_BOT: ROOT / "orbit_state.json",
+    GOLD_BOT: ROOT / "gold_state.json",
+    MNQ_BOT: ROOT / "mnq_state.json",
+}
 
 
 def is_configured() -> bool:
@@ -83,8 +92,19 @@ def _coin(symbol: str) -> str:
     return (symbol or "?").replace("/USDT", "")
 
 
+def _starting_book(bot: str) -> float:
+    crypto = float(config.ORBIT_PAPER_EQUITY)
+    if bot == CRYPTO_BOT:
+        return crypto
+    if bot == GOLD_BOT:
+        return float(os.getenv("GOLD_PAPER_EQUITY", str(crypto)))
+    if bot == MNQ_BOT:
+        return float(os.getenv("MNQ_PAPER_EQUITY", str(crypto)))
+    return crypto
+
+
 def paper_equity(value: float | None = None) -> float:
-    """Sanitize balances for Telegram.
+    """Sanitize crypto balances for Telegram.
 
     Never show the Binance testnet faucet (~$10k). Legitimate paper equity
     from a bot ledger (which can move above the starting $1k) is left intact.
@@ -107,12 +127,65 @@ def paper_equity(value: float | None = None) -> float:
     return v
 
 
-def format_startup(balance: float | None = None) -> str:
-    equity = paper_equity(balance)
+def _equity_from_file(path: Path, *, fallback: float) -> float:
+    try:
+        if not path.exists():
+            return fallback
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        value = raw.get("equity_usdt")
+        if value is None:
+            return fallback
+        return float(value)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return fallback
+
+
+def desk_books(*, override: dict[str, float] | None = None) -> dict[str, float]:
+    """Current paper equity for Crypto / Gold / MNQ."""
+    books = {
+        CRYPTO_BOT: paper_equity(
+            _equity_from_file(_STATE_FILES[CRYPTO_BOT], fallback=_starting_book(CRYPTO_BOT))
+        ),
+        GOLD_BOT: _equity_from_file(
+            _STATE_FILES[GOLD_BOT], fallback=_starting_book(GOLD_BOT)
+        ),
+        MNQ_BOT: _equity_from_file(
+            _STATE_FILES[MNQ_BOT], fallback=_starting_book(MNQ_BOT)
+        ),
+    }
+    if override:
+        for bot, value in override.items():
+            if bot == CRYPTO_BOT:
+                books[bot] = paper_equity(value)
+            else:
+                books[bot] = float(value)
+    return books
+
+
+def format_desk_block(
+    books: dict[str, float] | None = None,
+    *,
+    override: dict[str, float] | None = None,
+) -> str:
+    books = books or desk_books(override=override)
+    start = sum(_starting_book(bot) for bot in (CRYPTO_BOT, GOLD_BOT, MNQ_BOT))
+    total = sum(float(books[bot]) for bot in (CRYPTO_BOT, GOLD_BOT, MNQ_BOT))
+    pnl = total - start
+    sign = "+" if pnl >= 0 else "−"
     return (
-        f"<b>{CRYPTO_BOT} · online</b>\n"
-        f"paper · Binance testnet\n"
-        f"equity  {_usdt(equity)} USDT"
+        f"Crypto  {_usdt(books[CRYPTO_BOT])}\n"
+        f"Gold    {_usdt(books[GOLD_BOT])}\n"
+        f"MNQ     {_usdt(books[MNQ_BOT])}\n"
+        f"desk    {_usdt(total)}  ({sign}{_usdt(abs(pnl))})"
+    )
+
+
+def format_startup(balance: float | None = None) -> str:
+    override = {CRYPTO_BOT: paper_equity(balance)} if balance is not None else None
+    return (
+        f"<b>Orbit · online</b>\n"
+        f"paper · 3 bots\n"
+        f"{format_desk_block(override=override)}"
     )
 
 
@@ -126,14 +199,13 @@ def format_entry(
     qty = float(position.get("quantity") or 0.0)
     fill = float(position.get("entry_price") or 0.0)
     stop = float(position.get("initial_stop") or 0.0)
-    lines = [
+    override = {bot: float(equity)} if equity is not None else None
+    return "\n".join([
         f"<b>{bot} · buy</b>  {_coin(symbol)}",
         f"{qty:.4g} @ {_px(fill)}",
         f"stop  {_px(stop)}",
-    ]
-    if equity is not None:
-        lines.append(f"equity  {_usdt(paper_equity(equity))} USDT")
-    return "\n".join(lines)
+        format_desk_block(override=override),
+    ])
 
 
 def format_exit(
@@ -149,15 +221,14 @@ def format_exit(
     label = _EXIT_LABELS.get(reason, reason.replace("_", " "))
     title = "take profit" if reason == "take_profit" else "sell"
     sign = "+" if pnl >= 0 else "−"
-    lines = [
+    override = {bot: float(equity)} if equity is not None else None
+    return "\n".join([
         f"<b>{bot} · {title}</b>  {_coin(symbol)}",
         f"{sign}{_usdt(abs(pnl))} USDT",
         f"{quantity:.4g} @ {_px(price)}",
         label,
-    ]
-    if equity is not None:
-        lines.append(f"equity  {_usdt(paper_equity(equity))} USDT")
-    return "\n".join(lines)
+        format_desk_block(override=override),
+    ])
 
 
 def format_drawdown(drawdown_pct: float, balance: float) -> str:
@@ -165,7 +236,7 @@ def format_drawdown(drawdown_pct: float, balance: float) -> str:
     return (
         f"<b>{CRYPTO_BOT} · halted</b>\n"
         f"daily loss  {drawdown_pct * 100:.1f}%  (limit {limit:.0f}%)\n"
-        f"equity  {_usdt(paper_equity(balance))} USDT\n"
+        f"{format_desk_block(override={CRYPTO_BOT: paper_equity(balance)})}\n"
         f"paused until next UTC day"
     )
 
@@ -197,7 +268,7 @@ def format_daily(
     when = str(candle_time).replace("+00:00", " UTC")
     return (
         f"<b>{CRYPTO_BOT} · daily</b>  {when}\n"
-        f"equity  {_usdt(paper_equity(equity))} USDT\n"
+        f"{format_desk_block(override={CRYPTO_BOT: paper_equity(equity)})}\n"
         f"{regime} · {held_name}"
         f"{extra}"
     )
@@ -214,14 +285,13 @@ def format_paper_entry(
     equity: float | None = None,
 ) -> str:
     action = "buy" if side == "long" else "sell short" if side == "short" else side
-    lines = [
+    override = {bot: float(equity)} if equity is not None else None
+    return "\n".join([
         f"<b>{bot} · {action}</b>  {symbol}",
         f"{qty:.4g} @ {_px(price)}",
         f"stop  {_px(stop)}",
-    ]
-    if equity is not None:
-        lines.append(f"equity  {_usdt(float(equity))} USDT")
-    return "\n".join(lines)
+        format_desk_block(override=override),
+    ])
 
 
 def format_paper_exit(
@@ -237,15 +307,14 @@ def format_paper_exit(
 ) -> str:
     sign = "+" if pnl >= 0 else "−"
     label = _EXIT_LABELS.get(reason, reason.replace("_", " "))
-    lines = [
+    override = {bot: float(equity)} if equity is not None else None
+    return "\n".join([
         f"<b>{bot} · closed</b>  {symbol}",
         f"{sign}{_usdt(abs(pnl))} USDT",
         f"{side} {qty:.4g} @ {_px(price)}",
         label,
-    ]
-    if equity is not None:
-        lines.append(f"equity  {_usdt(float(equity))} USDT")
-    return "\n".join(lines)
+        format_desk_block(override=override),
+    ])
 
 
 def notify_paper_entry(
