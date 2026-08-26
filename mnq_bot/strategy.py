@@ -135,11 +135,13 @@ def evaluate_entry(
         return None
     if _is_or_candle(row, rules):
         return None
-    volume_sma = _field(row, "volume_sma")
-    if volume_sma is None or pd.isna(volume_sma):
-        return None
-    if float(_field(row, "volume")) < float(volume_sma) * rules.volume_mult:
-        return None
+    if rules.volume_mult > 0:
+        volume_sma = _field(row, "volume_sma")
+        if volume_sma is None or pd.isna(volume_sma):
+            return None
+        # Require bar volume >= volume_mult × SMA(volume); default 1.25×.
+        if float(_field(row, "volume")) < float(volume_sma) * rules.volume_mult:
+            return None
     or_width = float(or_high) - float(or_low)
     if or_width <= 0:
         return None

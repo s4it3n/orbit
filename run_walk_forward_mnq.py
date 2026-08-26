@@ -28,6 +28,14 @@ def main() -> None:
     print("\nOOS return %", round(agg["return_pct"], 2))
     print("Sharpe", round(agg["sharpe"], 3), "DD", round(agg["max_drawdown_pct"], 2))
     print("PF", round(agg["profit_factor"], 3), "win%", round(agg["win_rate_pct"], 1))
+    print(
+        "Volume filter",
+        agg.get("volume_filter_mult"),
+        "win% vs no-filter",
+        round(agg.get("baseline_win_rate_pct", 0.0), 1),
+        "lift",
+        round(agg.get("win_rate_lift_pct", 0.0), 1),
+    )
     print("Trades", agg["trade_count"], "folds", agg["fold_count"])
     print("OR window fold counts:", agg.get("or_window_fold_counts"))
     print("Preferred OR duration (min):", agg.get("preferred_or_duration_minutes"))

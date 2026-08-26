@@ -22,6 +22,11 @@ ACCEPTANCE = {
     "min_trades": 6,
 }
 
+# Entries require bar volume >= 1.25 × SMA(volume).
+VOLUME_FILTER_MULT = 1.25
+# volume_mult=0 disables the volume gate (baseline for win-rate comparison).
+NO_VOLUME_FILTER_MULT = 0.0
+
 
 # CET opening-range windows under comparison:
 #   15:30-15:45  -> duration 15, entries from 15:45
@@ -33,12 +38,12 @@ OR_WINDOWS = (
 
 
 def _candidates(base: mnq_strategy.MnqRules) -> list[mnq_strategy.MnqRules]:
-    """ORB family × CET OR windows (15 vs 30 min). Keep grid small for short trains."""
+    """ORB family × CET OR windows with mandatory 1.25× volume SMA filter."""
     specs = [
-        {"use_vwap": True, "session_bias": False, "max_or_points": 250.0, "volume_mult": 1.25, "long_only": False, "reward_risk": 2.0},
-        {"use_vwap": True, "session_bias": False, "max_or_points": 160.0, "volume_mult": 1.25, "long_only": False, "reward_risk": 2.0},
-        {"use_vwap": False, "session_bias": False, "max_or_points": 250.0, "volume_mult": 1.0, "long_only": False, "reward_risk": 2.0},
-        {"use_vwap": True, "session_bias": True, "max_or_points": 250.0, "volume_mult": 1.25, "long_only": False, "reward_risk": 2.0},
+        {"use_vwap": True, "session_bias": False, "max_or_points": 250.0, "long_only": False, "reward_risk": 2.0},
+        {"use_vwap": True, "session_bias": False, "max_or_points": 160.0, "long_only": False, "reward_risk": 2.0},
+        {"use_vwap": False, "session_bias": False, "max_or_points": 250.0, "long_only": False, "reward_risk": 2.0},
+        {"use_vwap": True, "session_bias": True, "max_or_points": 250.0, "long_only": False, "reward_risk": 2.0},
     ]
     out: list[mnq_strategy.MnqRules] = []
     for window in OR_WINDOWS:
@@ -55,11 +60,18 @@ def _candidates(base: mnq_strategy.MnqRules) -> list[mnq_strategy.MnqRules]:
                     trend_sma_period=0,
                     entry_end_hour_cet=18,
                     entry_end_minute_cet=0,
+                    volume_sma_period=20,
+                    volume_mult=VOLUME_FILTER_MULT,
                     **window,
                     **spec,
                 )
             )
     return out
+
+
+def _baseline_no_volume(rules: mnq_strategy.MnqRules) -> mnq_strategy.MnqRules:
+    """Same rules with the volume filter disabled for A/B win-rate check."""
+    return replace(rules, volume_mult=NO_VOLUME_FILTER_MULT)
 
 
 def _score(metrics: dict) -> float:
@@ -152,6 +164,9 @@ def run_walk_forward(
 
         test_result = run_backtest(test, initial_capital=initial_capital, rules=best_rules)
         test_metrics = metrics_from_result(test_result)
+        baseline_rules = _baseline_no_volume(best_rules)
+        baseline_result = run_backtest(test, initial_capital=initial_capital, rules=baseline_rules)
+        baseline_metrics = metrics_from_result(baseline_result)
         test_curves.append(test_result.equity_curve)
         fold = {
             "train_from": str(train_start.date()),
@@ -161,6 +176,7 @@ def run_walk_forward(
             "selected": asdict(best_rules),
             "train": best_train,
             "test": test_metrics,
+            "baseline_no_volume": baseline_metrics,
         }
         folds.append(fold)
         if on_progress:
@@ -177,29 +193,40 @@ def run_walk_forward(
     gross_p = sum(float(f["test"]["gross_profit_usdt"]) for f in folds)
     gross_l = sum(float(f["test"]["gross_loss_usdt"]) for f in folds)
     win_rates = [float(f["test"]["win_rate_pct"]) for f in folds]
+    baseline_win_rates = [float(f["baseline_no_volume"]["win_rate_pct"]) for f in folds]
+    baseline_trades = sum(int(f["baseline_no_volume"]["trade_count"]) for f in folds)
     or_counts: dict[int, int] = {}
     for fold in folds:
         dur = int(fold["selected"].get("or_duration_minutes", 15))
         or_counts[dur] = or_counts.get(dur, 0) + 1
     preferred_or = max(or_counts, key=or_counts.get) if or_counts else 15
 
+    win_rate = sum(win_rates) / len(win_rates) if win_rates else 0.0
+    baseline_win_rate = (
+        sum(baseline_win_rates) / len(baseline_win_rates) if baseline_win_rates else 0.0
+    )
     aggregate = {
         "return_pct": oos["return_pct"],
         "sharpe": oos["sharpe"],
         "max_drawdown_pct": oos["max_drawdown_pct"],
-        "win_rate_pct": sum(win_rates) / len(win_rates) if win_rates else 0.0,
+        "win_rate_pct": win_rate,
+        "baseline_win_rate_pct": baseline_win_rate,
+        "win_rate_lift_pct": win_rate - baseline_win_rate,
+        "baseline_trade_count": baseline_trades,
         "profit_factor": (gross_p / gross_l) if gross_l else 0.0,
         "trade_count": trades,
         "fold_count": len(folds),
         "positive_fold_pct": wins / len(folds) * 100,
         "or_window_fold_counts": {str(k): v for k, v in sorted(or_counts.items())},
         "preferred_or_duration_minutes": preferred_or,
+        "volume_filter_mult": VOLUME_FILTER_MULT,
     }
     gates = {
         "positive_return": aggregate["return_pct"] > ACCEPTANCE["min_return_pct"],
         "min_sharpe": aggregate["sharpe"] > ACCEPTANCE["min_sharpe"],
         "min_profit_factor": aggregate["profit_factor"] > ACCEPTANCE["min_profit_factor"],
         "minimum_trades": aggregate["trade_count"] >= ACCEPTANCE["min_trades"],
+        "volume_filter_win_rate_improved": aggregate["win_rate_pct"] > aggregate["baseline_win_rate_pct"],
     }
     return {
         "config": asdict(rules0),

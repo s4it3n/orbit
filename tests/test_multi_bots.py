@@ -84,6 +84,24 @@ def test_mnq_orb_and_backtest():
     assert signal is not None and signal.side == "long"
 
 
+def test_mnq_volume_filter_1_25x_sma():
+    base = {
+        "close": 2010.0,
+        "volume_sma": 1000.0,
+        "cet_hour": 16,
+        "cet_minute": 0,
+        "atr": 12.0,
+    }
+    weak = pd.Series({**base, "volume": 1200.0})  # 1.2× SMA — below 1.25×
+    strong = pd.Series({**base, "volume": 1300.0})  # 1.3× SMA — passes
+    assert mnq.evaluate_entry(weak, or_high=2000.0, or_low=1990.0, trades_today=0) is None
+    ok = mnq.evaluate_entry(strong, or_high=2000.0, or_low=1990.0, trades_today=0)
+    assert ok is not None and ok.side == "long"
+    # volume_mult <= 0 disables the gate
+    rules = mnq.MnqRules(volume_mult=0.0)
+    assert mnq.evaluate_entry(weak, or_high=2000.0, or_low=1990.0, trades_today=0, rules=rules) is not None
+
+
 def test_no_synthetic_generators():
     import gold_bot.engine as gold_engine
     import mnq_bot.engine as mnq_engine
