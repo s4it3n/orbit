@@ -10,10 +10,10 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class GoldRules:
-    donchian_period: int = 24
+    donchian_period: int = 22
     atr_period: int = 14
     atr_sma_period: int = 50
-    breakout_atr_mult: float = 0.2
+    breakout_atr_mult: float = 0.1
     risk_pct: float = 0.01
     initial_stop_atr: float = 2.5
     breakeven_atr: float = 1.5

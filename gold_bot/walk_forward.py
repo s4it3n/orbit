@@ -13,17 +13,25 @@ from gold_bot.engine import metrics_from_result, run_backtest
 TRAIN_MONTHS = 6
 TEST_MONTHS = 2
 STEP_MONTHS = 2
+VAL_MONTHS = 2
 MIN_TRAIN_BARS = 800
 MIN_TEST_BARS = 200
+MIN_VAL_BARS = 150
+MIN_FIT_BARS = 500
 
 ACCEPTANCE = {
     "min_return_pct": 0.0,
-    "min_sharpe": 0.50,
+    "min_sharpe": 0.60,
     "min_trades": 15,
 }
 
 
 def _candidates(base: gold_strategy.GoldRules) -> list[gold_strategy.GoldRules]:
+    """Sweep Donchian length 10-30 and entry offset 0.1-0.4 ATR.
+
+    Secondary axes are kept narrow so selection stays in the robust region
+    found by local probing (both-sides entries, light squeeze filter).
+    """
     return [
         replace(
             base,
@@ -40,13 +48,13 @@ def _candidates(base: gold_strategy.GoldRules) -> list[gold_strategy.GoldRules]:
             time_stop_hours=time_stop,
         )
         for donchian, brk, stop, trail, squeeze_bars, trend, long_only, session, inside, time_stop in product(
-            (24,),
-            (0.2,),
+            (10, 14, 18, 22, 26, 30),
+            (0.1, 0.2, 0.3, 0.4),
             (2.0, 2.5),
             (3.0,),
-            (1, 4),
+            (1,),
             (0, 200),
-            (True, False),
+            (False,),
             ((None, None),),
             (True,),
             (48,),
@@ -55,11 +63,21 @@ def _candidates(base: gold_strategy.GoldRules) -> list[gold_strategy.GoldRules]:
 
 
 def _score(metrics: dict) -> float:
-    if metrics["trade_count"] < 8:
+    trades = int(metrics["trade_count"])
+    if trades < 6:
         return float("-inf")
-    if metrics["total_return_pct"] <= -5:
+    ret = float(metrics["total_return_pct"])
+    if ret <= -3.0:
         return float("-inf")
-    return float(metrics["sharpe_ratio"]) + 0.02 * float(metrics["total_return_pct"])
+    pf = float(metrics["profit_factor"])
+    if pf < 1.05:
+        return float("-inf")
+    dd = float(metrics["max_drawdown_pct"])
+    if dd < -15.0:
+        return float("-inf")
+    sharpe = float(metrics["sharpe_ratio"])
+    # Prefer robust edges: Sharpe + mild return bonus - drawdown penalty.
+    return sharpe + 0.015 * ret - 0.04 * abs(dd) + 0.1 * min(pf, 2.0)
 
 
 def _slice(frame: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
@@ -129,17 +147,43 @@ def run_walk_forward(
             train_start += pd.DateOffset(months=STEP_MONTHS)
             continue
 
+        # Inner holdout: select on the last VAL_MONTHS of the train window.
+        val_start = train_end - pd.DateOffset(months=VAL_MONTHS)
+        fit = _slice(frame, train_start, val_start)
+        val = _slice(frame, val_start, train_end)
+        use_inner = len(fit) >= MIN_FIT_BARS and len(val) >= MIN_VAL_BARS
+
         best_score = float("-inf")
         best_rules: gold_strategy.GoldRules | None = None
         best_train: dict | None = None
         for candidate in candidates:
-            train_result = run_backtest(train, initial_capital=initial_capital, rules=candidate)
-            train_metrics = metrics_from_result(train_result)
-            score = _score(train_metrics)
+            if use_inner:
+                fit_metrics = metrics_from_result(
+                    run_backtest(fit, initial_capital=initial_capital, rules=candidate)
+                )
+                # Require a non-disastrous fit before trusting validation.
+                if fit_metrics["total_return_pct"] <= -8 or fit_metrics["trade_count"] < 4:
+                    continue
+                val_metrics = metrics_from_result(
+                    run_backtest(val, initial_capital=initial_capital, rules=candidate)
+                )
+                score = _score(val_metrics)
+                # Mild bonus if fit also held up (stability across sub-windows).
+                if fit_metrics["sharpe_ratio"] > 0 and val_metrics["sharpe_ratio"] > 0:
+                    score += 0.15
+            else:
+                train_result = run_backtest(train, initial_capital=initial_capital, rules=candidate)
+                train_metrics = metrics_from_result(train_result)
+                score = _score(train_metrics)
+                val_metrics = train_metrics
+
             if score > best_score:
                 best_score = score
                 best_rules = candidate
-                best_train = train_metrics
+                # Report full-train metrics for the selected rules.
+                best_train = metrics_from_result(
+                    run_backtest(train, initial_capital=initial_capital, rules=candidate)
+                )
 
         if best_rules is None:
             train_start += pd.DateOffset(months=STEP_MONTHS)
@@ -177,8 +221,6 @@ def run_walk_forward(
         t = fold["test"]
         win_rates.append(float(t["win_rate_pct"]))
         n = int(t["trade_count"])
-        pf = float(t["profit_factor"])
-        # Reconstruct approximate gross from PF is unstable; use fold expectancy.
         pnls += float(t["expectancy_usdt"]) * n
         gross_p += float(t["gross_profit_usdt"])
         gross_l += float(t["gross_loss_usdt"])
