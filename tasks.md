@@ -4,4 +4,4 @@
 - [x] Implement ATR trailing stop variations (2.0 to 3.5 ATR) for Gold 1H to reduce max drawdown below -7%.
 - [x] Backtest dynamic CET Opening Range time windows (15:30-15:45 vs 15:30-16:00) for MNQ 15m locally.
 - [x] Add volume filter (1.25x SMA) to MNQ 15m ORB entries and verify win rate improvement.
-- [ ] Run full 3-bot local portfolio correlation check to confirm smooth overall equity curve.
+- [x] Run full 3-bot local portfolio correlation check to confirm smooth overall equity curve.
