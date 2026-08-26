@@ -10,6 +10,7 @@ from mnq_bot.walk_forward import ACCEPTANCE as MNQ_ACCEPTANCE
 def test_gold_gates_pre_registered():
     assert GOLD_ACCEPTANCE["min_sharpe"] == 0.60
     assert GOLD_ACCEPTANCE["min_return_pct"] == 0.0
+    assert GOLD_ACCEPTANCE["max_drawdown_limit_pct"] == -7.0
 
 
 def test_mnq_gates_pre_registered():

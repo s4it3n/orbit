@@ -14,10 +14,10 @@ class GoldRules:
     atr_period: int = 14
     atr_sma_period: int = 50
     breakout_atr_mult: float = 0.1
-    risk_pct: float = 0.01
+    risk_pct: float = 0.009
     initial_stop_atr: float = 2.5
     breakeven_atr: float = 1.5
-    trail_atr: float = 3.0
+    trail_atr: float = 2.5
     time_stop_hours: int = 48
     # Quality filters (core Donchian + squeeze entry is unchanged).
     squeeze_min_bars: int = 1
@@ -159,16 +159,27 @@ def update_stop(
     *,
     rules: GoldRules | None = None,
 ) -> float:
-    """Breakeven at +1.5 ATR, then trail at 2.0 ATR from peak/trough."""
+    """Breakeven at ``breakeven_atr``, then ATR trail from peak/trough.
+
+    After the trade extends +1.5 ATR beyond the breakeven trigger, the trail
+    tightens by 0.25 ATR (floored at 2.0) to limit give-back without choking
+    trend follow-through.
+    """
     rules = rules or GoldRules()
+    if atr <= 0:
+        return current_stop
+    profit_atr = abs(extreme - entry) / atr
+    trail_mult = rules.trail_atr
+    if profit_atr >= rules.breakeven_atr + 1.5:
+        trail_mult = max(2.0, rules.trail_atr - 0.25)
     if side == "long":
         if extreme >= entry + rules.breakeven_atr * atr:
             current_stop = max(current_stop, entry)
-        trail = extreme - rules.trail_atr * atr
+        trail = extreme - trail_mult * atr
         return max(current_stop, trail)
     if extreme <= entry - rules.breakeven_atr * atr:
         current_stop = min(current_stop, entry)
-    trail = extreme + rules.trail_atr * atr
+    trail = extreme + trail_mult * atr
     return min(current_stop, trail)
 
 

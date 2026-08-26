@@ -23,14 +23,16 @@ ACCEPTANCE = {
     "min_return_pct": 0.0,
     "min_sharpe": 0.60,
     "min_trades": 15,
+    "max_drawdown_limit_pct": -7.0,
 }
 
 
 def _candidates(base: gold_strategy.GoldRules) -> list[gold_strategy.GoldRules]:
-    """Sweep Donchian length 10-30 and entry offset 0.1-0.4 ATR.
+    """Sweep Donchian length 10-30, entry offset 0.1-0.4 ATR, and trail 2.0-3.5 ATR.
 
-    Secondary axes are kept narrow so selection stays in the robust region
-    found by local probing (both-sides entries, light squeeze filter).
+    Trailing-stop variations are the primary drawdown control; secondary axes
+    stay narrow so selection remains in the robust region found locally
+    (both-sides entries, light squeeze filter).
     """
     return [
         replace(
@@ -51,7 +53,7 @@ def _candidates(base: gold_strategy.GoldRules) -> list[gold_strategy.GoldRules]:
             (10, 14, 18, 22, 26, 30),
             (0.1, 0.2, 0.3, 0.4),
             (2.0, 2.5),
-            (3.0,),
+            (2.0, 2.5, 3.0, 3.5),
             (1,),
             (0, 200),
             (False,),
@@ -76,8 +78,11 @@ def _score(metrics: dict) -> float:
     if dd < -15.0:
         return float("-inf")
     sharpe = float(metrics["sharpe_ratio"])
-    # Prefer robust edges: Sharpe + mild return bonus - drawdown penalty.
-    return sharpe + 0.015 * ret - 0.04 * abs(dd) + 0.1 * min(pf, 2.0)
+    # Balanced edge: Sharpe + mild return - DD penalty; soft cost past -7% target.
+    score = sharpe + 0.015 * ret - 0.07 * abs(dd) + 0.1 * min(pf, 2.0)
+    if dd < -7.0:
+        score -= 0.25 * (abs(dd) - 7.0)
+    return score
 
 
 def _slice(frame: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
@@ -241,6 +246,7 @@ def run_walk_forward(
         "positive_return": aggregate["return_pct"] > ACCEPTANCE["min_return_pct"],
         "min_sharpe": aggregate["sharpe"] > ACCEPTANCE["min_sharpe"],
         "minimum_trades": aggregate["trade_count"] >= ACCEPTANCE["min_trades"],
+        "max_drawdown": aggregate["max_drawdown_pct"] > ACCEPTANCE["max_drawdown_limit_pct"],
     }
     return {
         "config": asdict(rules0),
