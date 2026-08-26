@@ -110,10 +110,23 @@ def _headline() -> dict[str, Any] | None:
     agg = payload.get("aggregate") or {}
     if not agg:
         return None
+    gates = payload.get("gates") or {}
+    passed = sum(1 for value in gates.values() if value)
     return {
         "research_sharpe": round(float(agg.get("sharpe") or 0.0), 2),
+        "research_sharpe_ratio": round(float(agg.get("sharpe") or 0.0), 2),
         "research_return_pct": round(float(agg.get("return_pct") or 0.0), 2),
+        "research_max_drawdown_pct": round(float(agg.get("max_drawdown_pct") or 0.0), 2),
+        "research_win_rate_pct": round(float(agg.get("win_rate_pct") or 0.0), 1),
+        "research_profit_factor": round(float(agg.get("profit_factor") or 0.0), 2),
+        "research_trade_count": int(agg.get("trade_count") or 0),
+        "gates_passed": passed,
+        "gates_total": len(gates),
         "accepted": bool(payload.get("accepted")),
+        "acceptance_note": (
+            f"Walk-forward {'ACCEPTED' if payload.get('accepted') else 'REJECTED'}"
+            f" ({passed}/{len(gates)} gates)"
+        ),
     }
 
 
@@ -154,7 +167,15 @@ def export_live_state(account: dict[str, Any] | None = None) -> dict[str, Any]:
         "equity_curve": list(account.get("equity_curve") or [])[-500:],
         "recent_trades": list(account.get("trades") or [])[-20:][::-1],
         "accepted": bool(headline.get("accepted", True)),
+        "acceptance_note": headline.get("acceptance_note"),
+        "gates_passed": headline.get("gates_passed"),
+        "gates_total": headline.get("gates_total"),
         "research_return_pct": headline.get("research_return_pct"),
+        "research_sharpe_ratio": headline.get("research_sharpe_ratio"),
+        "research_max_drawdown_pct": headline.get("research_max_drawdown_pct"),
+        "research_win_rate_pct": headline.get("research_win_rate_pct"),
+        "research_profit_factor": headline.get("research_profit_factor"),
+        "research_trade_count": headline.get("research_trade_count"),
         "data_source": "Yahoo Finance MNQ/NQ/QQQ 15m (live paper)",
         "mode": "paper_live",
         "logs": list(account.get("logs") or [])[-40:],

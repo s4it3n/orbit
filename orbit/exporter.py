@@ -13,11 +13,11 @@ from . import state as bot_state
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / "orbit_state.json"
 
-# Locked ACCEPTED 1D walk-forward headline metrics (stitched OOS) — research only.
+# Fallback locked ACCEPTED 1D walk-forward headline — prefer live JSON / summary.
 ACCEPTED_METRICS = {
-    "total_return_pct": 35.2,
+    "total_return_pct": 35.19,
     "sharpe_ratio": 0.50,
-    "max_drawdown_pct": -18.9,
+    "max_drawdown_pct": -18.87,
     "win_rate_pct": 64.2,
     "profit_factor": 1.34,
     "trade_count": 153,

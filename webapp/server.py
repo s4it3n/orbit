@@ -38,6 +38,14 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 CACHE_DIR = ROOT / "data_cache"
 WALK_FORWARD_FILE = ROOT / "backtest_output" / "walk_forward.json"
+WALK_FORWARD_FILES = {
+    "orbit": ROOT / "backtest_output" / "walk_forward.json",
+    "gold": ROOT / "backtest_output" / "walk_forward_gold.json",
+    "mnq": ROOT / "backtest_output" / "walk_forward_mnq.json",
+}
+# Committed snapshot so the main page still shows WF results when
+# backtest_output/ is missing (e.g. fresh clone / VM without local runs).
+WALK_FORWARD_SUMMARY = ROOT / "research" / "walk_forward_summary.json"
 STATE_FILES = {
     "orbit": ROOT / "orbit_state.json",
     "gold": ROOT / "gold_state.json",
@@ -428,21 +436,70 @@ async def logout() -> RedirectResponse:
     return response
 
 
+def _walk_forward_headline(bot_id: str) -> dict[str, Any]:
+    """Research walk-forward metrics for the main page.
+
+    Prefers a fresh local ``backtest_output/walk_forward*.json`` run, then the
+    committed ``research/walk_forward_summary.json`` snapshot.
+    """
+    path = WALK_FORWARD_FILES.get(bot_id)
+    if path is not None and path.exists():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            agg = payload.get("aggregate") or {}
+            gates = payload.get("gates") or {}
+            passed = sum(1 for value in gates.values() if value)
+            win_rate = agg.get("win_rate_pct")
+            if win_rate is None and bot_id == "orbit":
+                win_rate = 64.2  # locked ACCEPTED book headline
+            return {
+                "accepted": bool(payload.get("accepted")),
+                "gates_passed": passed,
+                "gates_total": len(gates),
+                "research_return_pct": round(float(agg.get("return_pct") or 0.0), 2),
+                "research_sharpe_ratio": round(float(agg.get("sharpe") or 0.0), 2),
+                "research_max_drawdown_pct": round(
+                    float(agg.get("max_drawdown_pct") or 0.0), 2
+                ),
+                "research_win_rate_pct": (
+                    None if win_rate is None else round(float(win_rate), 1)
+                ),
+                "research_profit_factor": round(float(agg.get("profit_factor") or 0.0), 2),
+                "research_trade_count": int(agg.get("trade_count") or 0),
+                "acceptance_note": (
+                    f"Walk-forward {'ACCEPTED' if payload.get('accepted') else 'REJECTED'}"
+                    f" ({passed}/{len(gates)} gates)"
+                ),
+                "walk_forward_source": "local_run",
+            }
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+    if WALK_FORWARD_SUMMARY.exists():
+        try:
+            summary = json.loads(WALK_FORWARD_SUMMARY.read_text(encoding="utf-8"))
+            bot = (summary.get("bots") or {}).get(bot_id) or {}
+            if bot:
+                return {**bot, "walk_forward_source": "summary"}
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return {}
+
+
 def _load_bot_state(bot_id: str) -> dict[str, Any]:
     base = dict(MOCK_BOTS.get(bot_id) or {"bot_id": bot_id, "bot_name": bot_id})
     path = STATE_FILES.get(bot_id)
+    merged: dict[str, Any] = dict(base)
     if path is not None and path.exists():
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             merged = {**base, **raw, "bot_id": bot_id, "mock": False}
             if not merged.get("equity_curve"):
                 merged["equity_curve"] = base.get("equity_curve") or []
-            return merged
         except (OSError, json.JSONDecodeError):
             pass
-    # Crypto loop can run before orbit_state.json is written; build from live ops
-    # so the desk never falls back to the mock IDLE card while paper is live.
-    if bot_id == "orbit":
+    elif bot_id == "orbit":
+        # Crypto loop can run before orbit_state.json is written; build from live ops
+        # so the desk never falls back to the mock IDLE card while paper is live.
         try:
             from orbit import exporter as orbit_exporter
             from orbit import state as orbit_bot_state
@@ -450,11 +507,19 @@ def _load_bot_state(bot_id: str) -> dict[str, Any]:
             live = orbit_bot_state.load_state()
             if live.get("bot_running") or live.get("last_updated"):
                 payload = orbit_exporter.build_export_payload(live)
-                return {**base, **payload, "bot_id": bot_id, "mock": False}
+                merged = {**base, **payload, "bot_id": bot_id, "mock": False}
         except Exception:
             pass
-    base["mock"] = True
-    return base
+    else:
+        merged["mock"] = True
+
+    # Always overlay research walk-forward so the main page shows OOS results.
+    headline = _walk_forward_headline(bot_id)
+    if headline:
+        merged.update(headline)
+        if merged.get("sharpe_ratio") is None:
+            merged["sharpe_ratio"] = headline.get("research_sharpe_ratio")
+    return merged
 
 
 def _portfolio_payload() -> dict[str, Any]:
@@ -468,12 +533,16 @@ def _portfolio_payload() -> dict[str, Any]:
         if not b.get("mock") and str(b.get("status") or "").upper() not in {"IDLE", ""}
     )
     health = "healthy" if live == 3 else "degraded" if live else "offline"
+    wf_accepted = sum(1 for b in bots if b.get("accepted"))
+    avg_wf = sum(float(b.get("research_return_pct") or 0) for b in bots) / max(len(bots), 1)
     return {
         "ok": True,
         "combined_equity": combined,
         "monthly_pnl_pct": round(avg_ret, 2),
         "global_max_dd_pct": global_dd,
         "system_health": health,
+        "walk_forward_accepted": wf_accepted,
+        "walk_forward_avg_return_pct": round(avg_wf, 2),
         "bots": bots,
     }
 
