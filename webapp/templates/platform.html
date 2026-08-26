@@ -4,9 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Orbit · Trading Platform</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2311141c'/%3E%3Ccircle cx='50' cy='50' r='28' fill='none' stroke='%535b9fd4' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='8' fill='%535b9fd4'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -62,9 +61,10 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
 .spark svg{width:100%;height:100%;display:block}
 .wf{
   margin-top:2px;padding-top:10px;border-top:1px solid #1c2230;
-  font-size:.72rem;color:#6d758a;line-height:1.45;font-family:var(--mono);
+  font-size:.74rem;color:#7a8396;line-height:1.5;
 }
-.wf strong{color:#9aa3b8;font-weight:600}
+.wf .label{color:#9aa3b8;font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em}
+.wf .nums{font-family:var(--mono);margin-top:4px;color:#8b93a7;font-size:.72rem}
 .actions{display:flex;gap:8px;margin-top:auto}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;border-radius:9px;border:1px solid var(--border);background:#0e121a;color:var(--text);font:600 .78rem 'DM Sans',system-ui,sans-serif;cursor:pointer}
 .btn.primary{background:var(--blue);border-color:transparent;color:#0b1220}
@@ -106,7 +106,7 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
 
   <div class="note">
     <strong>Paper capital ≈ $1,000 per bot</strong> (not live funded trading).
-    Small <strong>WF</strong> lines under each card are research walk-forward scores, separate from live P&amp;L.
+    Small <strong>Walk-forward</strong> lines under each card are research OOS scores, separate from live P&amp;L.
     <strong>Orbit crypto</strong> strategy is locked ACCEPTED.
     <strong>Gold</strong> = 1h Yahoo paper. <strong>MNQ</strong> = 15m Yahoo paper (CET session).
   </div>
@@ -135,9 +135,9 @@ function card(bot){
   const href = bot.bot_id==='orbit' ? '/crypto' : `/bot/${bot.bot_id}`;
   const retClass = Number(bot.total_return_pct)>=0 ? 'pos' : 'neg';
   const gates = (bot.gates_passed!=null && bot.gates_total!=null)
-    ? `${bot.gates_passed}/${bot.gates_total}`
-    : (bot.accepted ? 'ok' : '—');
-  const wf = `WF ${fmtPct(bot.research_return_pct)} · Sharpe ${Number(bot.research_sharpe_ratio||0).toFixed(2)} · DD ${Number(bot.research_max_drawdown_pct||0).toFixed(1)}% · ${gates}`;
+    ? `${bot.gates_passed}/${bot.gates_total} gates`
+    : (bot.accepted ? 'accepted' : '—');
+  const wfNums = `${fmtPct(bot.research_return_pct)} · Sharpe ${Number(bot.research_sharpe_ratio||0).toFixed(2)} · DD ${Number(bot.research_max_drawdown_pct||0).toFixed(1)}% · ${gates}`;
   return `<a class="card" href="${href}">
     <div class="card-top">
       <div>
@@ -152,7 +152,10 @@ function card(bot){
       <div class="m"><div class="l">Max DD</div><div class="v neg">${Number(bot.max_drawdown_pct||0).toFixed(1)}%</div></div>
     </div>
     <div class="spark">${spark(bot.equity_curve)}</div>
-    <div class="wf"><strong>Research</strong> · ${wf}</div>
+    <div class="wf">
+      <div class="label">Walk-forward</div>
+      <div class="nums">${wfNums}</div>
+    </div>
     <div class="actions">
       <span class="btn primary">Open desk</span>
     </div>

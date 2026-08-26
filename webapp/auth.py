@@ -10,6 +10,7 @@ from fastapi import Request
 
 COOKIE_NAME = "orbit_session"
 PUBLIC_PATHS = {"/login", "/logout", "/api/health"}
+PUBLIC_PREFIXES = ("/login", "/static/")
 
 
 def dashboard_password() -> str:

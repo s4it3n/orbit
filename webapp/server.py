@@ -21,12 +21,20 @@ import ccxt
 import pandas as pd
 from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from orbit import config, controller, data, engine, state, strategy, universe
-from webapp.auth import COOKIE_NAME, PUBLIC_PATHS, dashboard_password, is_authenticated, passwords_match, session_token
-from backtest.config import BacktestConfig
+from webapp.auth import (
+    COOKIE_NAME,
+    PUBLIC_PATHS,
+    PUBLIC_PREFIXES,
+    dashboard_password,
+    is_authenticated,
+    passwords_match,
+    session_token,
+)from backtest.config import BacktestConfig
 from backtest.engine import run_backtest
 from backtest.metrics import calculate_metrics
 from backtest.walk_forward import run_walk_forward
@@ -36,6 +44,7 @@ from paper import loops as paper_loops
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+STATIC_DIR = Path(__file__).parent / "static"
 CACHE_DIR = ROOT / "data_cache"
 WALK_FORWARD_FILE = ROOT / "backtest_output" / "walk_forward.json"
 WALK_FORWARD_FILES = {
@@ -390,12 +399,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Orbit", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.middleware("http")
 async def dashboard_password_gate(request: Request, call_next):
     path = request.url.path
-    if path in PUBLIC_PATHS or path.startswith("/login"):
+    if path in PUBLIC_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
         return await call_next(request)
     if is_authenticated(request):
         return await call_next(request)
