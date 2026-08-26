@@ -14,9 +14,10 @@ def test_gold_gates_pre_registered():
 
 
 def test_mnq_gates_pre_registered():
-    assert MNQ_ACCEPTANCE["min_sharpe"] == 0.0
+    assert MNQ_ACCEPTANCE["min_sharpe"] == 0.50
     assert MNQ_ACCEPTANCE["min_return_pct"] == 0.0
     assert MNQ_ACCEPTANCE["min_trades"] == 6
+    assert MNQ_ACCEPTANCE["min_profit_factor"] == 1.20
 
 
 def test_normalize_ohlcv():

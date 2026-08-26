@@ -7,12 +7,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import config
 from . import state as bot_state
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / "orbit_state.json"
 
-# Locked ACCEPTED 1D walk-forward headline metrics (stitched OOS).
+# Locked ACCEPTED 1D walk-forward headline metrics (stitched OOS) — research only.
 ACCEPTED_METRICS = {
     "total_return_pct": 35.2,
     "sharpe_ratio": 0.50,
@@ -32,9 +33,8 @@ def _now_iso() -> str:
 
 
 def _status_from_live(live: dict[str, Any]) -> str:
-    if live.get("bot_running") and live.get("trading_paused") is False and bot_state.load_settings().get(
-        "bot_enabled"
-    ):
+    settings = bot_state.load_settings()
+    if settings.get("bot_enabled") and live.get("bot_running"):
         return "PAPER"
     if live.get("bot_running"):
         return "IDLE"
@@ -84,12 +84,33 @@ def _recent_trades(live: dict[str, Any], limit: int = 20) -> list[dict[str, Any]
     return rows
 
 
+def _live_trade_count(live: dict[str, Any]) -> int:
+    """Closed paper trades from live operations — never research ACCEPTED count."""
+    return sum(
+        1
+        for op in (live.get("operations") or [])
+        if op.get("type") in {"EXIT", "TAKE_PROFIT"}
+    )
+
+
+def _live_return_pct(live: dict[str, Any]) -> float | None:
+    equity = live.get("equity_usdt")
+    if equity is None:
+        return None
+    start = float(live.get("paper_equity_cap") or config.ORBIT_PAPER_EQUITY)
+    if start <= 0:
+        return None
+    return round((float(equity) / start - 1.0) * 100.0, 2)
+
+
 def build_export_payload(live: dict[str, Any] | None = None) -> dict[str, Any]:
     live = live if live is not None else bot_state.load_state()
-    settings = bot_state.load_settings()
-    status = "ACTIVE" if settings.get("bot_enabled") and live.get("bot_running") else "IDLE"
-    if status == "ACTIVE":
-        status = "PAPER"
+    status = _status_from_live(live)
+    equity = live.get("equity_usdt")
+    if equity is not None:
+        cap = float(live.get("paper_equity_cap") or config.ORBIT_PAPER_EQUITY)
+        equity = min(float(equity), cap)
+    live_return = _live_return_pct({**live, "equity_usdt": equity} if equity is not None else live)
     return {
         "bot_id": BOT_ID,
         "bot_name": BOT_NAME,
@@ -97,20 +118,28 @@ def build_export_payload(live: dict[str, Any] | None = None) -> dict[str, Any]:
         "timeframe": "1d",
         "status": status,
         "updated_at": _now_iso(),
-        "total_return_pct": ACCEPTED_METRICS["total_return_pct"],
-        "sharpe_ratio": ACCEPTED_METRICS["sharpe_ratio"],
-        "max_drawdown_pct": ACCEPTED_METRICS["max_drawdown_pct"],
-        "win_rate_pct": ACCEPTED_METRICS["win_rate_pct"],
-        "profit_factor": ACCEPTED_METRICS["profit_factor"],
-        "trade_count": ACCEPTED_METRICS["trade_count"],
+        "total_return_pct": live_return if live_return is not None else 0.0,
+        "sharpe_ratio": None,
+        "max_drawdown_pct": live.get("daily_drawdown_pct"),
+        "win_rate_pct": None,
+        "profit_factor": None,
+        "trade_count": _live_trade_count(live),
         "current_position": _position_payload(live),
-        "equity_usdt": live.get("equity_usdt"),
-        "equity_curve": _equity_curve_from_ops(live),
+        "equity_usdt": equity,
+        "paper_equity_cap": float(live.get("paper_equity_cap") or config.ORBIT_PAPER_EQUITY),
+        "equity_curve": _equity_curve_from_ops({**live, "equity_usdt": equity}),
         "recent_trades": _recent_trades(live),
         "logs": (live.get("logs") or [])[-50:],
         "regime": live.get("regime") or {},
         "accepted": True,
         "acceptance_note": "Walk-forward ACCEPTED (9/9 Gates Passed)",
+        "research_return_pct": ACCEPTED_METRICS["total_return_pct"],
+        "research_sharpe_ratio": ACCEPTED_METRICS["sharpe_ratio"],
+        "research_max_drawdown_pct": ACCEPTED_METRICS["max_drawdown_pct"],
+        "research_win_rate_pct": ACCEPTED_METRICS["win_rate_pct"],
+        "research_profit_factor": ACCEPTED_METRICS["profit_factor"],
+        "research_trade_count": ACCEPTED_METRICS["trade_count"],
+        "mode": "paper_live",
     }
 
 

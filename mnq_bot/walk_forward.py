@@ -124,7 +124,7 @@ def run_walk_forward(
     frame: pd.DataFrame,
     base: mnq_strategy.MnqRules | None = None,
     *,
-    initial_capital: float = 50_000.0,
+    initial_capital: float = 1_000.0,
     on_progress=None,
 ) -> dict:
     rules0 = base or mnq_strategy.MnqRules()

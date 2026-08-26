@@ -54,7 +54,7 @@ def _as_ts(value: Any) -> pd.Timestamp:
 def run_backtest(
     frame: pd.DataFrame | None = None,
     *,
-    initial_capital: float = 50_000.0,
+    initial_capital: float = 1_000.0,
     point_value: float = 2.0,
     commission_per_contract: float = 0.50,
     rules: mnq_strategy.MnqRules | None = None,
@@ -159,20 +159,20 @@ def run_backtest(
             )
             if signal is not None:
                 risk_pts = abs(signal.entry - signal.stop)
-                if risk_pts > 0:
-                    risk_budget = cash * 0.005
-                    qty = int(risk_budget / (risk_pts * point_value))
-                    if qty >= 1:
-                        cash -= commission_per_contract * qty
-                        lot = _Lot(
-                            side=signal.side,
-                            entry=signal.entry,
-                            stop=signal.stop,
-                            take_profit=signal.take_profit,
-                            qty=qty,
-                            entry_time=ts,
-                        )
-                        trades_today += 1
+                qty, _forced = mnq_strategy.size_contracts(
+                    cash, risk_pts, point_value=point_value
+                )
+                if qty >= 1:
+                    cash -= commission_per_contract * qty
+                    lot = _Lot(
+                        side=signal.side,
+                        entry=signal.entry,
+                        stop=signal.stop,
+                        take_profit=signal.take_profit,
+                        qty=qty,
+                        entry_time=ts,
+                    )
+                    trades_today += 1
 
         result.equity_curve.append({"timestamp": str(ts), "equity": mark(close)})
 

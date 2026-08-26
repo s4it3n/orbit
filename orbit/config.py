@@ -20,6 +20,9 @@ BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
+# Shared paper-account equity (~$1000). Caps crypto sizing/display; Gold/MNQ override via their env vars.
+ORBIT_PAPER_EQUITY = float(os.getenv("ORBIT_PAPER_EQUITY", "1000"))
+
 # Authenticated sandbox for paper orders.
 exchange: ccxt.binance = ccxt.binance({
     "apiKey": BINANCE_API_KEY,

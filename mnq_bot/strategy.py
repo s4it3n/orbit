@@ -37,6 +37,8 @@ class MnqRules:
     require_close_break: bool = True
     use_vwap: bool = False
     session_bias: bool = False
+    # Cap stop distance so a $1k paper account can take 1 MNQ without risking $200+.
+    max_stop_points: float = 40.0
 
 
 @dataclass(frozen=True)
@@ -174,11 +176,14 @@ def evaluate_entry(
         risk = close - mid
         if risk <= 0:
             return None
+        if rules.max_stop_points > 0:
+            risk = min(risk, float(rules.max_stop_points))
+        stop = close - risk
         return MnqSignal(
             "long",
             "orb_long",
             close,
-            mid,
+            stop,
             close + rules.reward_risk * risk,
             or_high,
             or_low,
@@ -195,11 +200,14 @@ def evaluate_entry(
         risk = mid - close
         if risk <= 0:
             return None
+        if rules.max_stop_points > 0:
+            risk = min(risk, float(rules.max_stop_points))
+        stop = close + risk
         return MnqSignal(
             "short",
             "orb_short",
             close,
-            mid,
+            stop,
             close - rules.reward_risk * risk,
             or_high,
             or_low,
@@ -215,3 +223,30 @@ def should_force_flat(row: pd.Series, rules: MnqRules | None = None) -> bool:
 def is_opening_range_bar(row: pd.Series, rules: MnqRules | None = None) -> bool:
     rules = rules or MnqRules()
     return _is_or_candle(row, rules)
+
+
+def size_contracts(
+    cash: float,
+    risk_pts: float,
+    *,
+    point_value: float = 2.0,
+    risk_frac: float = 0.005,
+    max_risk_frac: float = 0.10,
+    min_cash_for_one: float = 400.0,
+) -> tuple[int, bool]:
+    """MNQ contract count from cash risk.
+
+    On small paper accounts (~$1k), a strict 0.5% risk budget often yields qty=0
+    because one MNQ point is $2. Allow a single contract when cash is at least
+    ``min_cash_for_one`` and 1-lot dollar risk is within ``max_risk_frac`` of cash
+    (default 10% — realistic for micro futures on a tiny account).
+    """
+    if cash <= 0 or risk_pts <= 0 or point_value <= 0:
+        return 0, False
+    risk_per_contract = risk_pts * point_value
+    qty = int((cash * risk_frac) / risk_per_contract)
+    forced = False
+    if qty < 1 and cash >= min_cash_for_one and risk_per_contract <= cash * max_risk_frac:
+        qty = 1
+        forced = True
+    return max(qty, 0), forced

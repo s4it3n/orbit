@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,7 @@ WF_PATH = ROOT / "backtest_output" / "walk_forward_gold.json"
 BOT_ID = "gold"
 BOT_NAME = "Gold 1H Volatility Breakout"
 ASSET_CLASS = "XAU/USD"
-INITIAL_CAPITAL = 100_000.0
+INITIAL_CAPITAL = float(os.getenv("GOLD_PAPER_EQUITY", os.getenv("ORBIT_PAPER_EQUITY", "1000")))
 COST_BPS = 0.5
 LOOP_INTERVAL_SEC = 180
 WARMUP_BARS = 320
@@ -41,6 +42,37 @@ _DEFAULTS: dict[str, Any] = {
     "logs": [],
     "last_processed_bar_ts": None,
 }
+
+
+def _fresh_defaults(*, enabled: bool = True, bot_running: bool = False) -> dict[str, Any]:
+    return {
+        "bot_id": BOT_ID,
+        "enabled": enabled,
+        "bot_running": bot_running,
+        "initial_capital": INITIAL_CAPITAL,
+        "cash": INITIAL_CAPITAL,
+        "position": None,
+        "trades": [],
+        "equity_curve": [{"timestamp": utc_now(), "equity": INITIAL_CAPITAL}],
+        "logs": [],
+        "last_processed_bar_ts": None,
+    }
+
+
+def _ensure_paper_capital(account: dict[str, Any]) -> dict[str, Any]:
+    stored = float(account.get("initial_capital") or 0.0)
+    if abs(stored - INITIAL_CAPITAL) < 1e-9:
+        return account
+    reset = _fresh_defaults(
+        enabled=bool(account.get("enabled", True)),
+        bot_running=bool(account.get("bot_running", False)),
+    )
+    append_log(reset, f"Reset paper account to ${INITIAL_CAPITAL:.0f}")
+    return reset
+
+
+def _load() -> dict[str, Any]:
+    return _ensure_paper_capital(load_account(ACCOUNT_PATH, _DEFAULTS))
 
 
 def _as_ts(value: Any) -> pd.Timestamp:
@@ -81,11 +113,11 @@ def _headline() -> dict[str, Any] | None:
 
 
 def export_live_state(account: dict[str, Any] | None = None) -> dict[str, Any]:
-    account = account or load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = account or _load()
     metrics = metrics_from_account(account)
     running = bool(account.get("bot_running")) or loop_running(BOT_ID)
     enabled = bool(account.get("enabled", True))
-    status = "ACTIVE" if running and enabled else ("PAPER" if enabled else "IDLE")
+    status = "PAPER" if running and enabled else ("IDLE" if not enabled else "PAPER")
     lot = account.get("position")
     current = None
     if lot:
@@ -116,6 +148,7 @@ def export_live_state(account: dict[str, Any] | None = None) -> dict[str, Any]:
         "equity_curve": list(account.get("equity_curve") or [])[-500:],
         "recent_trades": list(account.get("trades") or [])[-20:][::-1],
         "accepted": bool(headline.get("accepted", True)),
+        "research_return_pct": headline.get("research_return_pct"),
         "data_source": "Yahoo Finance GC=F 1h (live paper)",
         "mode": "paper_live",
         "logs": list(account.get("logs") or [])[-40:],
@@ -220,7 +253,7 @@ def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: gold_strat
 
 
 def run_iteration(*, force_refresh: bool = False) -> dict[str, Any]:
-    account = load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = _load()
     rules = gold_strategy.GoldRules()
     if not account.get("enabled", True):
         account["bot_running"] = False
@@ -267,7 +300,7 @@ def run_iteration(*, force_refresh: bool = False) -> dict[str, Any]:
 
 
 def run_bot_loop(stop_event: threading.Event) -> None:
-    account = load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = _load()
     account["enabled"] = True
     account["bot_running"] = True
     append_log(account, "Gold paper bot started (Yahoo GC=F test money)")
@@ -280,14 +313,14 @@ def run_bot_loop(stop_event: threading.Event) -> None:
         try:
             run_iteration(force_refresh=force)
         except Exception as exc:  # noqa: BLE001
-            account = load_account(ACCOUNT_PATH, _DEFAULTS)
+            account = _load()
             append_log(account, f"Cycle error: {exc}", "ERROR")
             save_account(ACCOUNT_PATH, account)
             export_live_state(account)
         cycles += 1
         stop_event.wait(LOOP_INTERVAL_SEC)
 
-    account = load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = _load()
     account["bot_running"] = False
     append_log(account, "Gold paper bot stopped")
     save_account(ACCOUNT_PATH, account)
@@ -295,7 +328,7 @@ def run_bot_loop(stop_event: threading.Event) -> None:
 
 
 def set_enabled(enabled: bool) -> dict[str, Any]:
-    account = load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = _load()
     account["enabled"] = bool(enabled)
     append_log(account, "Trading enabled" if enabled else "Trading paused")
     save_account(ACCOUNT_PATH, account)

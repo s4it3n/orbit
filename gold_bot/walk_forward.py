@@ -130,7 +130,7 @@ def run_walk_forward(
     frame: pd.DataFrame,
     base: gold_strategy.GoldRules | None = None,
     *,
-    initial_capital: float = 100_000.0,
+    initial_capital: float = 1_000.0,
     on_progress=None,
 ) -> dict:
     rules0 = base or gold_strategy.GoldRules()

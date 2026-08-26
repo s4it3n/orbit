@@ -56,7 +56,7 @@ def _as_ts(value: Any) -> pd.Timestamp:
 def run_backtest(
     frame: pd.DataFrame | None = None,
     *,
-    initial_capital: float = 100_000.0,
+    initial_capital: float = 1_000.0,
     rules: gold_strategy.GoldRules | None = None,
     cost_bps: float = 0.5,
 ) -> GoldResult:

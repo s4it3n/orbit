@@ -102,6 +102,11 @@ def test_mnq_volume_filter_1_25x_sma():
     assert mnq.evaluate_entry(weak, or_high=2000.0, or_low=1990.0, trades_today=0, rules=rules) is not None
 
 
+def test_mnq_size_contracts_floors_to_one_on_small_cash():
+    qty, forced = mnq.size_contracts(1000.0, risk_pts=5.0, point_value=2.0)
+    assert (qty, forced) == (1, True)
+
+
 def test_no_synthetic_generators():
     import gold_bot.engine as gold_engine
     import mnq_bot.engine as mnq_engine

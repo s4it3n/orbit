@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,7 @@ WF_PATH = ROOT / "backtest_output" / "walk_forward_mnq.json"
 BOT_ID = "mnq"
 BOT_NAME = "Nasdaq 15m ORB"
 ASSET_CLASS = "MNQ Futures"
-INITIAL_CAPITAL = 50_000.0
+INITIAL_CAPITAL = float(os.getenv("MNQ_PAPER_EQUITY", os.getenv("ORBIT_PAPER_EQUITY", "1000")))
 POINT_VALUE = 2.0
 COMMISSION = 0.50
 LOOP_INTERVAL_SEC = 90
@@ -46,6 +47,41 @@ _DEFAULTS: dict[str, Any] = {
     "trades_today": 0,
     "current_day": None,
 }
+
+
+def _fresh_defaults(*, enabled: bool = True, bot_running: bool = False) -> dict[str, Any]:
+    return {
+        "bot_id": BOT_ID,
+        "enabled": enabled,
+        "bot_running": bot_running,
+        "initial_capital": INITIAL_CAPITAL,
+        "cash": INITIAL_CAPITAL,
+        "position": None,
+        "trades": [],
+        "equity_curve": [{"timestamp": utc_now(), "equity": INITIAL_CAPITAL}],
+        "logs": [],
+        "last_processed_bar_ts": None,
+        "or_high": None,
+        "or_low": None,
+        "trades_today": 0,
+        "current_day": None,
+    }
+
+
+def _ensure_paper_capital(account: dict[str, Any]) -> dict[str, Any]:
+    stored = float(account.get("initial_capital") or 0.0)
+    if abs(stored - INITIAL_CAPITAL) < 1e-9:
+        return account
+    reset = _fresh_defaults(
+        enabled=bool(account.get("enabled", True)),
+        bot_running=bool(account.get("bot_running", False)),
+    )
+    append_log(reset, f"Reset paper account to ${INITIAL_CAPITAL:.0f}")
+    return reset
+
+
+def _load() -> dict[str, Any]:
+    return _ensure_paper_capital(load_account(ACCOUNT_PATH, _DEFAULTS))
 
 
 def _as_ts(value: Any) -> pd.Timestamp:
@@ -76,16 +112,17 @@ def _headline() -> dict[str, Any] | None:
         return None
     return {
         "research_sharpe": round(float(agg.get("sharpe") or 0.0), 2),
+        "research_return_pct": round(float(agg.get("return_pct") or 0.0), 2),
         "accepted": bool(payload.get("accepted")),
     }
 
 
 def export_live_state(account: dict[str, Any] | None = None) -> dict[str, Any]:
-    account = account or load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = account or _load()
     metrics = metrics_from_account(account)
     running = bool(account.get("bot_running")) or loop_running(BOT_ID)
     enabled = bool(account.get("enabled", True))
-    status = "ACTIVE" if running and enabled else ("PAPER" if enabled else "IDLE")
+    status = "PAPER" if running and enabled else ("IDLE" if not enabled else "PAPER")
     lot = account.get("position")
     current = None
     if lot:
@@ -117,6 +154,7 @@ def export_live_state(account: dict[str, Any] | None = None) -> dict[str, Any]:
         "equity_curve": list(account.get("equity_curve") or [])[-500:],
         "recent_trades": list(account.get("trades") or [])[-20:][::-1],
         "accepted": bool(headline.get("accepted", True)),
+        "research_return_pct": headline.get("research_return_pct"),
         "data_source": "Yahoo Finance MNQ/NQ/QQQ 15m (live paper)",
         "mode": "paper_live",
         "logs": list(account.get("logs") or [])[-40:],
@@ -209,32 +247,39 @@ def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: mnq_strate
         )
         if signal is not None:
             risk_pts = abs(signal.entry - signal.stop)
-            if risk_pts > 0:
-                risk_budget = float(account["cash"]) * 0.005
-                qty = int(risk_budget / (risk_pts * POINT_VALUE))
-                if qty >= 1:
-                    account["cash"] = float(account["cash"]) - COMMISSION * qty
-                    account["position"] = {
-                        "side": signal.side,
-                        "entry": signal.entry,
-                        "stop": signal.stop,
-                        "take_profit": signal.take_profit,
-                        "qty": qty,
-                        "entry_time": str(ts),
-                    }
-                    account["trades_today"] = int(account.get("trades_today") or 0) + 1
+            qty, forced = mnq_strategy.size_contracts(
+                float(account["cash"]), risk_pts, point_value=POINT_VALUE
+            )
+            if qty >= 1:
+                account["cash"] = float(account["cash"]) - COMMISSION * qty
+                account["position"] = {
+                    "side": signal.side,
+                    "entry": signal.entry,
+                    "stop": signal.stop,
+                    "take_profit": signal.take_profit,
+                    "qty": qty,
+                    "entry_time": str(ts),
+                }
+                account["trades_today"] = int(account.get("trades_today") or 0) + 1
+                note = " (forced 1-lot for $1k paper)" if forced else ""
+                if forced:
                     append_log(
                         account,
-                        f"ENTRY {signal.side} @ {signal.entry:.2f} qty={qty} "
-                        f"stop={signal.stop:.2f} tp={signal.take_profit:.2f}",
+                        f"Forced MNQ qty=1 — 1-lot risk "
+                        f"{risk_pts * POINT_VALUE:.2f} ≤ 2% of cash",
                     )
+                append_log(
+                    account,
+                    f"ENTRY {signal.side} @ {signal.entry:.2f} qty={qty} "
+                    f"stop={signal.stop:.2f} tp={signal.take_profit:.2f}{note}",
+                )
 
     append_equity(account, _mark(account, close), str(ts))
     account["last_processed_bar_ts"] = str(ts)
 
 
 def run_iteration(*, force_refresh: bool = False) -> dict[str, Any]:
-    account = load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = _load()
     rules = mnq_strategy.MnqRules()
     if not account.get("enabled", True):
         account["bot_running"] = False
@@ -278,7 +323,7 @@ def run_iteration(*, force_refresh: bool = False) -> dict[str, Any]:
 
 
 def run_bot_loop(stop_event: threading.Event) -> None:
-    account = load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = _load()
     account["enabled"] = True
     account["bot_running"] = True
     append_log(account, "MNQ paper bot started (Yahoo test money)")
@@ -291,14 +336,14 @@ def run_bot_loop(stop_event: threading.Event) -> None:
         try:
             run_iteration(force_refresh=force)
         except Exception as exc:  # noqa: BLE001
-            account = load_account(ACCOUNT_PATH, _DEFAULTS)
+            account = _load()
             append_log(account, f"Cycle error: {exc}", "ERROR")
             save_account(ACCOUNT_PATH, account)
             export_live_state(account)
         cycles += 1
         stop_event.wait(LOOP_INTERVAL_SEC)
 
-    account = load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = _load()
     account["bot_running"] = False
     append_log(account, "MNQ paper bot stopped")
     save_account(ACCOUNT_PATH, account)
@@ -306,7 +351,7 @@ def run_bot_loop(stop_event: threading.Event) -> None:
 
 
 def set_enabled(enabled: bool) -> dict[str, Any]:
-    account = load_account(ACCOUNT_PATH, _DEFAULTS)
+    account = _load()
     account["enabled"] = bool(enabled)
     append_log(account, "Trading enabled" if enabled else "Trading paused")
     save_account(ACCOUNT_PATH, account)

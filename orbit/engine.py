@@ -361,15 +361,35 @@ def _sync_state(
         book = [position] if _is_long(position) else []
     position = _primary(book)
     equity = None
+    display_equity = None
+    paper_cap = float(config.ORBIT_PAPER_EQUITY)
+    anchor: float | None = None
     if snapshot is not None:
         equity = _total_equity(snapshot, book, frames, price)
+        # Map testnet balance into a $ORBIT_PAPER_EQUITY paper book via an anchor.
+        # First sync (or missing anchor) sets the baseline so UI starts near $1k.
+        from . import state as bot_state
+
+        live = bot_state.load_state()
+        raw_anchor = live.get("exchange_equity_anchor")
+        if raw_anchor is None and equity is not None:
+            anchor = float(equity)
+        elif raw_anchor is not None:
+            anchor = float(raw_anchor)
+        if equity is not None and anchor is not None and anchor > 0:
+            display_equity = max(0.0, paper_cap + (float(equity) - anchor))
+        elif equity is not None:
+            display_equity = min(float(equity), paper_cap)
     drawdown = 0.0
     if guard.start_balance > 0 and equity is not None:
         drawdown = max(0.0, (guard.start_balance - equity) / guard.start_balance)
     symbols = _held_symbols(book)
     fields: dict = {
         "balance_usdt": snapshot.quote_free if snapshot else None,
-        "equity_usdt": equity,
+        "equity_usdt": display_equity,
+        "paper_equity_cap": paper_cap,
+        "exchange_equity_usdt": equity,
+        "exchange_equity_anchor": float(anchor) if anchor is not None else None,
         "base_balance": snapshot.base_total if snapshot else None,
         "start_of_day_balance": guard.start_balance or equity,
         "daily_drawdown_pct": round(drawdown * 100, 2),
@@ -539,7 +559,9 @@ def _enter_long(
     if len(book) >= rules.max_positions:
         log.info("All %d slots are filled — skipping %s.", rules.max_positions, candidate.symbol)
         return book
-    equity = _total_equity(snapshot, book, frames)
+    raw_equity = _total_equity(snapshot, book, frames)
+    # Size off paper capital so testnet balances >> $1k do not inflate live sizing.
+    equity = min(raw_equity, float(config.ORBIT_PAPER_EQUITY))
     deployed = 0.0
     for item in book:
         price = _position_mark(item, frames)

@@ -100,9 +100,10 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
   <section class="grid" id="botGrid"></section>
 
   <div class="note">
-    <strong>Orbit 1D Crypto</strong> paper-trades on Binance spot testnet.
-    <strong>Gold</strong> and <strong>MNQ</strong> paper-trade on local test money marked to Yahoo prices
-    (GC=F 1h / MNQ 15m). Open a bot desk to Start / Stop / Run once.
+    <strong>Paper capital ≈ $1,000 per bot</strong> (not live funded trading).
+    <strong>Orbit crypto</strong> sizes on Binance spot testnet capped at $1k — may sit flat in BTC risk-off.
+    <strong>Gold</strong> = 1h Yahoo paper. <strong>MNQ</strong> = 15m Yahoo paper (CET session).
+    Research walk-forward scores are separate from live paper P&amp;L.
   </div>
 </div>
 <script>
@@ -154,7 +155,7 @@ async function refresh(){
   document.getElementById('kEquity').textContent = fmtMoney(data.combined_equity);
   document.getElementById('kReturn').textContent = fmtPct(data.monthly_pnl_pct);
   document.getElementById('kDD').textContent = Number(data.global_max_dd_pct||0).toFixed(1)+'%';
-  const live = (data.bots||[]).filter(b=>b.status!=='IDLE').length;
+  const live = (data.bots||[]).filter(b=>String(b.status||'').toUpperCase()!=='IDLE').length;
   document.getElementById('kLive').textContent = `${live}/3`;
   const h = document.getElementById('health');
   const ht = document.getElementById('healthText');
