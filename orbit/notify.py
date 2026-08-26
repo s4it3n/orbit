@@ -84,7 +84,11 @@ def _coin(symbol: str) -> str:
 
 
 def paper_equity(value: float | None = None) -> float:
-    """Always the ~$1k paper book — never the Binance testnet faucet balance."""
+    """Sanitize balances for Telegram.
+
+    Never show the Binance testnet faucet (~$10k). Legitimate paper equity
+    from a bot ledger (which can move above the starting $1k) is left intact.
+    """
     cap = float(config.ORBIT_PAPER_EQUITY)
     if value is None:
         try:
@@ -96,7 +100,11 @@ def paper_equity(value: float | None = None) -> float:
         except Exception:
             pass
         return cap
-    return min(float(value), cap)
+    v = float(value)
+    # Raw testnet faucet / uncapped exchange balance — not a paper book.
+    if v >= max(cap * 2.5, 2500.0):
+        return cap
+    return v
 
 
 def format_startup(balance: float | None = None) -> str:
