@@ -34,7 +34,8 @@ from webapp.auth import (
     is_authenticated,
     passwords_match,
     session_token,
-)from backtest.config import BacktestConfig
+)
+from backtest.config import BacktestConfig
 from backtest.engine import run_backtest
 from backtest.metrics import calculate_metrics
 from backtest.walk_forward import run_walk_forward
