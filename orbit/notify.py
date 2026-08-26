@@ -78,7 +78,12 @@ def _coin(symbol: str) -> str:
 
 
 def format_startup(balance: float | None = None) -> str:
-    equity = f"\nequity  {_usdt(balance)} USDT" if balance is not None else ""
+    # Always show the paper book (~$1k), never the raw testnet faucet balance.
+    if balance is not None:
+        paper = min(float(balance), float(config.ORBIT_PAPER_EQUITY))
+        equity = f"\npaper equity  {_usdt(paper)} USDT"
+    else:
+        equity = f"\npaper equity  {_usdt(float(config.ORBIT_PAPER_EQUITY))} USDT"
     return f"<b>Orbit · online</b>\npaper · Binance testnet{equity}"
 
 
@@ -114,10 +119,11 @@ def format_exit(
 
 def format_drawdown(drawdown_pct: float, balance: float) -> str:
     limit = config.DAILY_MAX_DRAWDOWN_PCT * 100
+    paper = min(float(balance), float(config.ORBIT_PAPER_EQUITY))
     return (
         f"<b>Orbit · halted</b>\n"
         f"daily loss  {drawdown_pct * 100:.1f}%  (limit {limit:.0f}%)\n"
-        f"equity  {_usdt(balance)} USDT\n"
+        f"paper equity  {_usdt(paper)} USDT\n"
         f"paused until next UTC day"
     )
 
@@ -146,11 +152,76 @@ def format_daily(
     if top and (not held or top != held):
         extra = f"\nnext  {_coin(top)}"
     when = str(candle_time).replace("+00:00", " UTC")
+    paper = min(float(equity), float(config.ORBIT_PAPER_EQUITY))
     return (
         f"<b>Orbit · daily</b>  {when}\n"
-        f"equity  {_usdt(equity)} USDT\n"
+        f"paper equity  {_usdt(paper)} USDT\n"
         f"{regime} · {held_name}"
         f"{extra}"
+    )
+
+
+def format_paper_entry(
+    bot: str,
+    *,
+    side: str,
+    symbol: str,
+    qty: float,
+    price: float,
+    stop: float,
+) -> str:
+    return (
+        f"<b>{bot} · {side}</b>  {symbol}\n"
+        f"{qty:.4g} @ {_px(price)}\n"
+        f"stop  {_px(stop)}"
+    )
+
+
+def format_paper_exit(
+    bot: str,
+    *,
+    side: str,
+    symbol: str,
+    qty: float,
+    price: float,
+    pnl: float,
+    reason: str,
+) -> str:
+    sign = "+" if pnl >= 0 else "−"
+    return (
+        f"<b>{bot} · closed</b>  {symbol}\n"
+        f"{sign}{_usdt(abs(pnl))} USDT\n"
+        f"{side} {qty:.4g} @ {_px(price)}\n"
+        f"{reason.replace('_', ' ')}"
+    )
+
+
+def notify_paper_entry(
+    bot: str,
+    *,
+    side: str,
+    symbol: str,
+    qty: float,
+    price: float,
+    stop: float,
+) -> None:
+    send(format_paper_entry(bot, side=side, symbol=symbol, qty=qty, price=price, stop=stop))
+
+
+def notify_paper_exit(
+    bot: str,
+    *,
+    side: str,
+    symbol: str,
+    qty: float,
+    price: float,
+    pnl: float,
+    reason: str,
+) -> None:
+    send(
+        format_paper_exit(
+            bot, side=side, symbol=symbol, qty=qty, price=price, pnl=pnl, reason=reason
+        )
     )
 
 

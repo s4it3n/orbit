@@ -187,6 +187,20 @@ def _close_lot(
     account["trades"] = trades[-200:]
     account["position"] = None
     append_log(account, f"EXIT {side} @ {exit_px:.2f} ({reason}) pnl={pnl:.2f}")
+    try:
+        from orbit.notify import notify_paper_exit
+
+        notify_paper_exit(
+            "Gold",
+            side=side,
+            symbol="XAU/USD",
+            qty=qty,
+            price=exit_px,
+            pnl=pnl,
+            reason=reason,
+        )
+    except Exception:
+        pass
 
 
 def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: gold_strategy.GoldRules) -> None:
@@ -246,6 +260,19 @@ def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: gold_strat
                     account,
                     f"ENTRY {signal.side} @ {signal.entry:.2f} qty={qty:.4f} stop={signal.stop:.2f}",
                 )
+                try:
+                    from orbit.notify import notify_paper_entry
+
+                    notify_paper_entry(
+                        "Gold",
+                        side=signal.side,
+                        symbol="XAU/USD",
+                        qty=qty,
+                        price=signal.entry,
+                        stop=signal.stop,
+                    )
+                except Exception:
+                    pass
 
     equity = _mark(account, close)
     append_equity(account, equity, str(ts))

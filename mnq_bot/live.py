@@ -193,6 +193,20 @@ def _close_lot(
     account["trades"] = trades[-200:]
     account["position"] = None
     append_log(account, f"EXIT {side} @ {exit_px:.2f} ({reason}) pnl={pnl:.2f}")
+    try:
+        from orbit.notify import notify_paper_exit
+
+        notify_paper_exit(
+            "MNQ",
+            side=side,
+            symbol="MNQ",
+            qty=qty,
+            price=exit_px,
+            pnl=pnl,
+            reason=reason,
+        )
+    except Exception:
+        pass
 
 
 def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: mnq_strategy.MnqRules) -> None:
@@ -273,6 +287,19 @@ def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: mnq_strate
                     f"ENTRY {signal.side} @ {signal.entry:.2f} qty={qty} "
                     f"stop={signal.stop:.2f} tp={signal.take_profit:.2f}{note}",
                 )
+                try:
+                    from orbit.notify import notify_paper_entry
+
+                    notify_paper_entry(
+                        "MNQ",
+                        side=signal.side,
+                        symbol="MNQ",
+                        qty=float(qty),
+                        price=signal.entry,
+                        stop=signal.stop,
+                    )
+                except Exception:
+                    pass
 
     append_equity(account, _mark(account, close), str(ts))
     account["last_processed_bar_ts"] = str(ts)

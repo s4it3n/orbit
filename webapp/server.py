@@ -431,18 +431,30 @@ async def logout() -> RedirectResponse:
 def _load_bot_state(bot_id: str) -> dict[str, Any]:
     base = dict(MOCK_BOTS.get(bot_id) or {"bot_id": bot_id, "bot_name": bot_id})
     path = STATE_FILES.get(bot_id)
-    if path is None or not path.exists():
-        base["mock"] = True
-        return base
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        merged = {**base, **raw, "bot_id": bot_id, "mock": False}
-        if not merged.get("equity_curve"):
-            merged["equity_curve"] = base.get("equity_curve") or []
-        return merged
-    except (OSError, json.JSONDecodeError):
-        base["mock"] = True
-        return base
+    if path is not None and path.exists():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            merged = {**base, **raw, "bot_id": bot_id, "mock": False}
+            if not merged.get("equity_curve"):
+                merged["equity_curve"] = base.get("equity_curve") or []
+            return merged
+        except (OSError, json.JSONDecodeError):
+            pass
+    # Crypto loop can run before orbit_state.json is written; build from live ops
+    # so the desk never falls back to the mock IDLE card while paper is live.
+    if bot_id == "orbit":
+        try:
+            from orbit import exporter as orbit_exporter
+            from orbit import state as orbit_bot_state
+
+            live = orbit_bot_state.load_state()
+            if live.get("bot_running") or live.get("last_updated"):
+                payload = orbit_exporter.build_export_payload(live)
+                return {**base, **payload, "bot_id": bot_id, "mock": False}
+        except Exception:
+            pass
+    base["mock"] = True
+    return base
 
 
 def _portfolio_payload() -> dict[str, Any]:

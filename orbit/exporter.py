@@ -34,10 +34,9 @@ def _now_iso() -> str:
 
 def _status_from_live(live: dict[str, Any]) -> str:
     settings = bot_state.load_settings()
-    if settings.get("bot_enabled") and live.get("bot_running"):
+    # Running loop = live paper desk (never show IDLE just because flat / waiting on daily bar).
+    if live.get("bot_running") or settings.get("bot_enabled"):
         return "PAPER"
-    if live.get("bot_running"):
-        return "IDLE"
     return "IDLE"
 
 
@@ -146,5 +145,8 @@ def build_export_payload(live: dict[str, Any] | None = None) -> dict[str, Any]:
 def export_state(live: dict[str, Any] | None = None, path: Path | None = None) -> dict[str, Any]:
     payload = build_export_payload(live)
     target = path or STATE_PATH
-    target.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    tmp.replace(target)
     return payload

@@ -1117,6 +1117,10 @@ def run_bot_loop(stop_event: threading.Event | None = None) -> None:
 
     bot_state.set_bot_running(True)
     bot_state.append_operation("START", "Orbit started")
+    try:
+        orbit_exporter.export_state()
+    except Exception:
+        log.exception("Failed to export orbit_state.json on start")
 
     if not config.BINANCE_API_KEY or not config.BINANCE_SECRET_KEY:
         log.warning("BINANCE_API_KEY / BINANCE_SECRET_KEY not set.")
