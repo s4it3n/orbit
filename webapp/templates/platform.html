@@ -43,7 +43,7 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 @media(max-width:920px){.grid{grid-template-columns:1fr}}
 .card{
-  display:flex;flex-direction:column;gap:14px;padding:18px;border-radius:16px;
+  display:flex;flex-direction:column;gap:12px;padding:18px;border-radius:16px;
   background:var(--panel);border:1px solid var(--border);transition:border-color .15s, transform .15s;
 }
 .card:hover{border-color:#3a455c;transform:translateY(-1px)}
@@ -60,6 +60,11 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
 .pos{color:var(--green)}.neg{color:var(--red)}
 .spark{height:52px;width:100%;background:#0a0d13;border-radius:10px;overflow:hidden}
 .spark svg{width:100%;height:100%;display:block}
+.wf{
+  margin-top:2px;padding-top:10px;border-top:1px solid #1c2230;
+  font-size:.72rem;color:#6d758a;line-height:1.45;font-family:var(--mono);
+}
+.wf strong{color:#9aa3b8;font-weight:600}
 .actions{display:flex;gap:8px;margin-top:auto}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;border-radius:9px;border:1px solid var(--border);background:#0e121a;color:var(--text);font:600 .78rem 'DM Sans',system-ui,sans-serif;cursor:pointer}
 .btn.primary{background:var(--blue);border-color:transparent;color:#0b1220}
@@ -88,18 +93,12 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
 
   <section class="kpis">
     <div class="kpi"><div class="kpi-l">Combined equity</div><div class="kpi-v" id="kEquity">—</div></div>
-    <div class="kpi"><div class="kpi-l">Live avg return</div><div class="kpi-v" id="kReturn">—</div></div>
-    <div class="kpi"><div class="kpi-l">WF OOS avg return</div><div class="kpi-v" id="kWfReturn">—</div></div>
-    <div class="kpi"><div class="kpi-l">WF accepted</div><div class="kpi-v" id="kWfLive">—</div></div>
+    <div class="kpi"><div class="kpi-l">Avg return</div><div class="kpi-v" id="kReturn">—</div></div>
+    <div class="kpi"><div class="kpi-l">Global max DD</div><div class="kpi-v" id="kDD">—</div></div>
+    <div class="kpi"><div class="kpi-l">Bots live</div><div class="kpi-v" id="kLive">—</div></div>
   </section>
 
   <div class="sec">
-    <h2>Walk-forward (research)</h2>
-    <p>Stitched out-of-sample results @ ~$1,000 paper capital — separate from live paper P&amp;L</p>
-  </div>
-  <section class="grid" id="wfGrid"></section>
-
-  <div class="sec" style="margin-top:28px">
     <h2>Your bots</h2>
     <p>Live paper desks — open a bot for trades and controls</p>
   </div>
@@ -107,7 +106,7 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
 
   <div class="note">
     <strong>Paper capital ≈ $1,000 per bot</strong> (not live funded trading).
-    <strong>Walk-forward</strong> numbers above are research OOS validation.
+    Small <strong>WF</strong> lines under each card are research walk-forward scores, separate from live P&amp;L.
     <strong>Orbit crypto</strong> strategy is locked ACCEPTED.
     <strong>Gold</strong> = 1h Yahoo paper. <strong>MNQ</strong> = 15m Yahoo paper (CET session).
   </div>
@@ -132,42 +131,13 @@ function spark(points){
   }).join(' ');
   return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="#5b9fd4" stroke-width="2"/></svg>`;
 }
-function wfCard(bot){
-  const href = bot.bot_id==='orbit' ? '/crypto' : `/bot/${bot.bot_id}`;
-  const ret = Number(bot.research_return_pct);
-  const retClass = ret>=0 ? 'pos' : 'neg';
-  const accepted = !!bot.accepted;
-  const gates = (bot.gates_passed!=null && bot.gates_total!=null)
-    ? `${bot.gates_passed}/${bot.gates_total} gates`
-    : (bot.acceptance_note || '');
-  const badge = accepted ? 'ACTIVE' : 'IDLE';
-  const label = accepted ? 'ACCEPTED' : 'REJECTED';
-  return `<a class="card" href="${href}">
-    <div class="card-top">
-      <div>
-        <div class="card-title">${bot.bot_name}</div>
-        <div class="card-meta">Walk-forward · ${bot.timeframe || ''}</div>
-      </div>
-      <span class="badge ${badge}">${label}</span>
-    </div>
-    <div class="metrics">
-      <div class="m"><div class="l">OOS return</div><div class="v ${retClass}">${fmtPct(ret)}</div></div>
-      <div class="m"><div class="l">Sharpe</div><div class="v">${Number(bot.research_sharpe_ratio||0).toFixed(2)}</div></div>
-      <div class="m"><div class="l">Max DD</div><div class="v neg">${Number(bot.research_max_drawdown_pct||0).toFixed(1)}%</div></div>
-    </div>
-    <div class="metrics">
-      <div class="m"><div class="l">Win rate</div><div class="v">${bot.research_win_rate_pct==null?'—':Number(bot.research_win_rate_pct).toFixed(1)+'%'}</div></div>
-      <div class="m"><div class="l">Profit factor</div><div class="v">${Number(bot.research_profit_factor||0).toFixed(2)}</div></div>
-      <div class="m"><div class="l">Trades</div><div class="v">${Number(bot.research_trade_count||0)}</div></div>
-    </div>
-    <div class="actions">
-      <span class="btn primary">${gates}</span>
-    </div>
-  </a>`;
-}
 function card(bot){
   const href = bot.bot_id==='orbit' ? '/crypto' : `/bot/${bot.bot_id}`;
   const retClass = Number(bot.total_return_pct)>=0 ? 'pos' : 'neg';
+  const gates = (bot.gates_passed!=null && bot.gates_total!=null)
+    ? `${bot.gates_passed}/${bot.gates_total}`
+    : (bot.accepted ? 'ok' : '—');
+  const wf = `WF ${fmtPct(bot.research_return_pct)} · Sharpe ${Number(bot.research_sharpe_ratio||0).toFixed(2)} · DD ${Number(bot.research_max_drawdown_pct||0).toFixed(1)}% · ${gates}`;
   return `<a class="card" href="${href}">
     <div class="card-top">
       <div>
@@ -177,14 +147,14 @@ function card(bot){
       <span class="badge ${bot.status}">${bot.status}</span>
     </div>
     <div class="metrics">
-      <div class="m"><div class="l">Live return</div><div class="v ${retClass}">${fmtPct(bot.total_return_pct)}</div></div>
+      <div class="m"><div class="l">Return</div><div class="v ${retClass}">${fmtPct(bot.total_return_pct)}</div></div>
       <div class="m"><div class="l">Equity</div><div class="v">${fmtMoney(bot.equity_usdt)}</div></div>
       <div class="m"><div class="l">Max DD</div><div class="v neg">${Number(bot.max_drawdown_pct||0).toFixed(1)}%</div></div>
     </div>
     <div class="spark">${spark(bot.equity_curve)}</div>
+    <div class="wf"><strong>Research</strong> · ${wf}</div>
     <div class="actions">
       <span class="btn primary">Open desk</span>
-      <span class="btn">WF ${fmtPct(bot.research_return_pct)}</span>
     </div>
   </a>`;
 }
@@ -193,14 +163,13 @@ async function refresh(){
   const data = await res.json();
   document.getElementById('kEquity').textContent = fmtMoney(data.combined_equity);
   document.getElementById('kReturn').textContent = fmtPct(data.monthly_pnl_pct);
-  document.getElementById('kWfReturn').textContent = fmtPct(data.walk_forward_avg_return_pct);
-  document.getElementById('kWfLive').textContent = `${Number(data.walk_forward_accepted||0)}/3`;
+  document.getElementById('kDD').textContent = Number(data.global_max_dd_pct||0).toFixed(1)+'%';
   const live = (data.bots||[]).filter(b=>String(b.status||'').toUpperCase()!=='IDLE').length;
+  document.getElementById('kLive').textContent = `${live}/3`;
   const h = document.getElementById('health');
   const ht = document.getElementById('healthText');
   h.className = 'health ' + (data.system_health==='healthy'?'ok':data.system_health==='degraded'?'warn':'bad');
-  ht.textContent = 'System ' + data.system_health + ` · ${live}/3 live`;
-  document.getElementById('wfGrid').innerHTML = (data.bots||[]).map(wfCard).join('');
+  ht.textContent = 'System ' + data.system_health;
   document.getElementById('botGrid').innerHTML = (data.bots||[]).map(card).join('');
 }
 refresh();
