@@ -7,44 +7,43 @@
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#0e1117;--panel:#151922;--border:#252a36;--text:#e8ecf4;--muted:#8b93a7;
   --green:#3dba7a;--red:#e05a5a;--amber:#d4a24c;--blue:#5b9fd4;--mono:'JetBrains Mono',ui-monospace,monospace;
 }
 *{box-sizing:border-box}html,body{margin:0;padding:0}
-body{
-  font-family:'DM Sans',system-ui,sans-serif;color:var(--text);min-height:100vh;
-  background:var(--bg);-webkit-font-smoothing:antialiased;
-}
-a{color:inherit;text-decoration:none}
-.wrap{max-width:1120px;margin:0 auto;padding:22px 18px 48px}
-header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1280px;margin:0 auto;padding:20px 20px 48px}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#2c3344;border-radius:8px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:18px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:12px}
-.mark{width:40px;height:40px;border-radius:11px;background:#1a2030;border:1px solid var(--border);display:grid;place-items:center}
+.mark{width:36px;height:36px;border-radius:10px;background:#1a2030;border:1px solid var(--border);display:grid;place-items:center}
+.mark svg{width:18px;height:18px}
 .brand h1{margin:0;font-size:1.2rem;font-weight:700;letter-spacing:-.02em}
-.brand h1 .back{color:var(--muted);font-weight:600}
-.brand h1 .back:hover{color:var(--text)}
-.brand .sub{color:var(--muted);font-size:.8rem;margin-top:3px}
-.top-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand .sub{color:var(--muted);font-size:.8rem;margin-top:2px}
+.brand a.back{color:var(--muted);font-size:.78rem;text-decoration:none;margin-right:4px}
+.brand a.back:hover{color:var(--text)}
+.top-right{display:flex;align-items:center;gap:12px}
 #utcClock{font-family:var(--mono);font-size:.82rem;color:var(--muted)}
-.badge{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;border:1px solid var(--border);background:var(--panel);font-size:.75rem;font-weight:700}
-.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
-.badge.run .dot{background:var(--green)}
-.badge.stop .dot{background:var(--red)}
-.badge.pause .dot{background:var(--amber)}
-.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:#1a2030;color:var(--text);font:600 .8rem 'DM Sans',system-ui,sans-serif;cursor:pointer}
-.btn:hover{filter:brightness(1.08)}
-.btn:disabled{opacity:.5;cursor:wait}
-.btn-primary{background:linear-gradient(180deg,#5b9fd4,#3d7fb4);border-color:transparent;color:#041018}
-.btn-danger{background:#3a1c1c;border-color:#5a2a2a;color:#ffb4b4}
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.badge{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;font-size:.78rem;font-weight:600;border:1px solid transparent}
+.badge .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.badge.run{background:#3dba7a18;color:var(--green);border-color:#3dba7a44}
+.badge.run .dot{animation:pulse 2s ease-in-out infinite}
+.badge.stop{background:#e05a5a18;color:var(--red);border-color:#e05a5a44}
+.badge.pause{background:#d4a24c18;color:var(--amber);border-color:#d4a24c44}
+@keyframes pulse{50%{opacity:.35}}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;border:1px solid transparent;font:600 .82rem 'DM Sans',system-ui,sans-serif;cursor:pointer;color:var(--text)}
+.btn:disabled{opacity:.4;cursor:not-allowed}.btn:active:not(:disabled){transform:translateY(1px)}
+.btn-primary{background:var(--blue);color:#0b1220}.btn-danger{background:var(--red);color:#fff}
+.btn-ghost{background:var(--panel);border-color:var(--border);color:var(--muted)}.btn-ghost:hover:not(:disabled){color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
 @media(max-width:800px){.kpis{grid-template-columns:1fr 1fr}}
-.kpi{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px}
-.kpi-l{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
-.kpi-v{font-family:var(--mono);font-size:1.15rem;font-weight:600;margin-top:6px}
+.kpi{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.kpi-l{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:8px}
+.kpi-v{font-family:var(--mono);font-size:1.35rem;font-weight:600;letter-spacing:-.02em}
 .pos{color:var(--green)}.neg{color:var(--red)}
 .strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
 @media(max-width:800px){.strip{grid-template-columns:1fr 1fr}}
@@ -61,9 +60,10 @@ th,td{padding:8px 10px;border-bottom:1px solid #1c2130;text-align:left}
 th{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.04em}
 .term{background:#0a0c11;border-radius:8px;max-height:280px;overflow:auto;padding:10px 12px;font-family:var(--mono);font-size:.74rem;line-height:1.55;color:#b8c0d0}
 .note{color:var(--muted);font-size:.8rem;margin:-4px 0 14px}
-.wf{margin-top:4px;padding-top:10px;border-top:1px solid #1c2230;font-size:.74rem;color:#7a8396}
+.wf{font-size:.74rem;color:#7a8396}
 .wf .label{color:#9aa3b8;font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em}
 .wf .nums{font-family:var(--mono);margin-top:4px;color:#8b93a7;font-size:.72rem}
+a{color:inherit;text-decoration:none}
 </style>
 </head>
 <body>
@@ -74,8 +74,8 @@ th{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.
         <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#5b9fd4" stroke-width="2"/><circle cx="12" cy="12" r="2.5" fill="#5b9fd4"/></svg>
       </div>
       <div>
-        <h1><a class="back" href="/">← Platform</a> · <span id="name">Bot</span></h1>
-        <div class="sub" id="meta">Paper desk</div>
+        <h1><a class="back" href="/">← Platform</a> · <span id="deskTitle">Bot Desk</span></h1>
+        <div class="sub" id="meta">Connecting…</div>
       </div>
     </div>
     <div class="top-right">
@@ -88,7 +88,7 @@ th{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.
   <div class="controls">
     <button class="btn btn-primary" id="btnStart" type="button">Start</button>
     <button class="btn btn-danger" id="btnStop" type="button">Stop</button>
-    <button class="btn" id="btnOnce" type="button">Run once</button>
+    <button class="btn btn-ghost" id="btnOnce" type="button">Run once</button>
   </div>
   <div class="note" id="modeNote">Paper test money · Yahoo marks (not a live broker)</div>
 
@@ -133,6 +133,10 @@ th{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.
 </div>
 <script>
 const id = location.pathname.split('/').pop();
+const DESK_TITLES = {
+  gold: 'Gold 1H Desk',
+  mnq: 'Nasdaq 15m Desk',
+};
 function $(x){ return document.getElementById(x); }
 function tickClock(){
   $('utcClock').textContent = new Date().toISOString().slice(11, 19) + ' UTC';
@@ -157,10 +161,11 @@ function setRunning(running){
 async function load(){
   const res = await fetch('/api/bots?id='+encodeURIComponent(id),{cache:'no-store'});
   const data = await res.json();
-  if(!data.ok){$('name').textContent='Bot not found';return}
+  if(!data.ok){$('deskTitle').textContent='Bot not found';return}
   const b=data.bot;
-  $('name').textContent=b.bot_name || id;
-  $('meta').textContent=`${b.asset_class||''} · ${b.timeframe||''}${b.mode==='paper_live'?' · live paper':''}`;
+  $('deskTitle').textContent = DESK_TITLES[id] || (b.bot_name || 'Bot Desk');
+  document.title = 'Orbit · ' + $('deskTitle').textContent;
+  $('meta').textContent=`${b.bot_name||''} · ${b.asset_class||''} · ${b.timeframe||''}${b.mode==='paper_live'?' · live paper':''}`;
   const running = String(b.status||'').toUpperCase() === 'PAPER' || !!b.bot_running;
   setRunning(running);
   $('eq').textContent='$'+Number(b.equity_usdt||0).toLocaleString(undefined,{maximumFractionDigits:0});
