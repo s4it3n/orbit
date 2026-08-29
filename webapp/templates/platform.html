@@ -31,6 +31,13 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
 .health{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);background:var(--panel);font-size:.78rem;font-weight:600}
 .health .dot{width:7px;height:7px;border-radius:50%}
 .health.ok .dot{background:var(--green)}.health.warn .dot{background:var(--amber)}.health.bad .dot{background:var(--red)}
+.top-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#utcClock{font-family:var(--mono);font-size:.82rem;color:var(--muted)}
+.badge-run{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;border:1px solid var(--border);background:var(--panel);font-size:.75rem;font-weight:700}
+.badge-run .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.badge-run.run .dot{background:var(--green)}
+.badge-run.stop .dot{background:var(--red)}
+.badge-run.warn .dot{background:var(--amber)}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
 @media(max-width:800px){.kpis{grid-template-columns:1fr 1fr}}
 .kpi{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
@@ -85,9 +92,11 @@ header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1
         <div class="sub">Multi-bot trading platform · manage crypto, gold, and Nasdaq strategies</div>
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <div id="health" class="health warn"><span class="dot"></span><span id="healthText">Checking…</span></div>
-      <a href="/logout" style="color:var(--muted);font-size:.8rem;font-weight:600">Sign out</a>
+    <div class="top-right">
+      <span id="utcClock">--:--:-- UTC</span>
+      <span class="badge-run warn" id="runBadge"><span class="dot"></span><span id="runText">Checking…</span></span>
+      <div id="health" class="health warn" style="display:none"><span class="dot"></span><span id="healthText">Checking…</span></div>
+      <a href="/logout" style="color:var(--muted);font-size:.78rem;font-weight:600">Sign out</a>
     </div>
   </header>
 
@@ -119,6 +128,10 @@ function fmtPct(n){
 function fmtMoney(n){
   return '$' + Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0});
 }
+function tickClock(){
+  document.getElementById('utcClock').textContent = new Date().toISOString().slice(11, 19) + ' UTC';
+}
+setInterval(tickClock, 1000); tickClock();
 function spark(points){
   const vals = (points||[]).map(p=>Number(p.equity)).filter(Number.isFinite);
   if(vals.length<2) return '<svg></svg>';
@@ -169,6 +182,18 @@ async function refresh(){
   document.getElementById('kDD').textContent = Number(data.global_max_dd_pct||0).toFixed(1)+'%';
   const live = (data.bots||[]).filter(b=>String(b.status||'').toUpperCase()!=='IDLE').length;
   document.getElementById('kLive').textContent = `${live}/3`;
+  const runBadge = document.getElementById('runBadge');
+  const runText = document.getElementById('runText');
+  if(live === 3){
+    runBadge.className = 'badge-run run';
+    runText.textContent = 'Running';
+  } else if(live > 0){
+    runBadge.className = 'badge-run warn';
+    runText.textContent = `${live}/3 running`;
+  } else {
+    runBadge.className = 'badge-run stop';
+    runText.textContent = 'Stopped';
+  }
   const h = document.getElementById('health');
   const ht = document.getElementById('healthText');
   h.className = 'health ' + (data.system_health==='healthy'?'ok':data.system_health==='degraded'?'warn':'bad');

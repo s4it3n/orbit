@@ -3,115 +3,206 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Orbit · Bot Detail</title>
+<title>Orbit · Bot Desk</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0e14;--panel:#141922;--border:#252b38;--text:#e8ecf4;--muted:#8b93a7;--green:#3dba7a;--red:#e05a5a;--blue:#5b9fd4;--mono:'JetBrains Mono',monospace}
-*{box-sizing:border-box}body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--text)}
-.wrap{max-width:1000px;margin:0 auto;padding:24px 18px 48px}
-a{color:var(--muted);text-decoration:none}a:hover{color:var(--text)}
-h1{margin:10px 0 4px;font-size:1.6rem} .sub{color:var(--muted);font-size:.88rem;margin-bottom:18px}
+:root{
+  --bg:#0e1117;--panel:#151922;--border:#252a36;--text:#e8ecf4;--muted:#8b93a7;
+  --green:#3dba7a;--red:#e05a5a;--amber:#d4a24c;--blue:#5b9fd4;--mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}html,body{margin:0;padding:0}
+body{
+  font-family:'DM Sans',system-ui,sans-serif;color:var(--text);min-height:100vh;
+  background:var(--bg);-webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1120px;margin:0 auto;padding:22px 18px 48px}
+header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}
+.mark{width:40px;height:40px;border-radius:11px;background:#1a2030;border:1px solid var(--border);display:grid;place-items:center}
+.brand h1{margin:0;font-size:1.2rem;font-weight:700;letter-spacing:-.02em}
+.brand h1 .back{color:var(--muted);font-weight:600}
+.brand h1 .back:hover{color:var(--text)}
+.brand .sub{color:var(--muted);font-size:.8rem;margin-top:3px}
+.top-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#utcClock{font-family:var(--mono);font-size:.82rem;color:var(--muted)}
+.badge{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;border:1px solid var(--border);background:var(--panel);font-size:.75rem;font-weight:700}
+.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.badge.run .dot{background:var(--green)}
+.badge.stop .dot{background:var(--red)}
+.badge.pause .dot{background:var(--amber)}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:#1a2030;color:var(--text);font:600 .8rem 'DM Sans',system-ui,sans-serif;cursor:pointer}
+.btn:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.5;cursor:wait}
+.btn-primary{background:linear-gradient(180deg,#5b9fd4,#3d7fb4);border-color:transparent;color:#041018}
+.btn-danger{background:#3a1c1c;border-color:#5a2a2a;color:#ffb4b4}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
-@media(max-width:700px){.kpis{grid-template-columns:1fr 1fr}}
+@media(max-width:800px){.kpis{grid-template-columns:1fr 1fr}}
 .kpi{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px}
-.kpi .l{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
-.kpi .v{font-family:var(--mono);font-size:1.15rem;margin-top:6px}
-.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px}
-.panel h2{margin:0 0 10px;font-size:.92rem}
-table{width:100%;border-collapse:collapse;font-size:.82rem}
-th,td{padding:8px;border-bottom:1px solid #1c2130;text-align:left}
-th{color:var(--muted);font-size:.68rem;text-transform:uppercase}
-.term{background:#0a0c11;border-radius:8px;max-height:260px;overflow:auto;padding:10px;font-family:var(--mono);font-size:.74rem;line-height:1.55;color:#b8c0d0}
-.badge{display:inline-flex;padding:4px 9px;border-radius:999px;font-size:.7rem;font-weight:700;background:#5b9fd418;color:var(--blue);border:1px solid #5b9fd444}
+.kpi-l{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.kpi-v{font-family:var(--mono);font-size:1.15rem;font-weight:600;margin-top:6px}
 .pos{color:var(--green)}.neg{color:var(--red)}
-.row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}
-button{border:1px solid var(--border);background:#1a2030;color:var(--text);border-radius:10px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}
-button.primary{background:linear-gradient(180deg,#5b9fd4,#3d7fb4);border-color:transparent;color:#041018}
-button.danger{background:#3a1c1c;border-color:#5a2a2a;color:#ffb4b4}
-button:disabled{opacity:.5;cursor:wait}
-.note{color:var(--muted);font-size:.82rem;margin-top:8px}
-.posbox{font-family:var(--mono);font-size:.82rem;color:var(--muted)}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:800px){.strip{grid-template-columns:1fr 1fr}}
+.sc{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.sc .l{font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+.sc .v{font-family:var(--mono);font-size:.9rem;margin-top:5px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;margin-bottom:12px;overflow:hidden}
+.ph{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border)}
+.pt{font-size:.9rem;font-weight:700}
+.pb{padding:14px}
+.scroll{max-height:280px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th,td{padding:8px 10px;border-bottom:1px solid #1c2130;text-align:left}
+th{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.04em}
+.term{background:#0a0c11;border-radius:8px;max-height:280px;overflow:auto;padding:10px 12px;font-family:var(--mono);font-size:.74rem;line-height:1.55;color:#b8c0d0}
+.note{color:var(--muted);font-size:.8rem;margin:-4px 0 14px}
+.wf{margin-top:4px;padding-top:10px;border-top:1px solid #1c2230;font-size:.74rem;color:#7a8396}
+.wf .label{color:#9aa3b8;font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em}
+.wf .nums{font-family:var(--mono);margin-top:4px;color:#8b93a7;font-size:.72rem}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <a href="/">← All bots</a>
-  · <a href="/logout">Sign out</a>
-  <h1 id="name">Bot</h1>
-  <div class="sub"><span id="meta"></span> · <span class="badge" id="status">—</span></div>
-  <div class="row">
-    <button class="primary" id="btnStart" type="button">Start paper bot</button>
-    <button class="danger" id="btnStop" type="button">Stop</button>
-    <button id="btnOnce" type="button">Run once now</button>
+  <header class="top">
+    <div class="brand">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#5b9fd4" stroke-width="2"/><circle cx="12" cy="12" r="2.5" fill="#5b9fd4"/></svg>
+      </div>
+      <div>
+        <h1><a class="back" href="/">← Platform</a> · <span id="name">Bot</span></h1>
+        <div class="sub" id="meta">Paper desk</div>
+      </div>
+    </div>
+    <div class="top-right">
+      <span id="utcClock">--:--:-- UTC</span>
+      <span class="badge stop" id="statusBadge"><span class="dot"></span><span id="statusText">Stopped</span></span>
+      <a href="/logout" style="color:var(--muted);font-size:.78rem;font-weight:600">Sign out</a>
+    </div>
+  </header>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="btnStart" type="button">Start</button>
+    <button class="btn btn-danger" id="btnStop" type="button">Stop</button>
+    <button class="btn" id="btnOnce" type="button">Run once</button>
   </div>
   <div class="note" id="modeNote">Paper test money · Yahoo marks (not a live broker)</div>
+
   <div class="kpis">
-    <div class="kpi"><div class="l">Equity</div><div class="v" id="eq">—</div></div>
-    <div class="kpi"><div class="l">Return</div><div class="v" id="ret">—</div></div>
-    <div class="kpi"><div class="l">Max DD</div><div class="v" id="dd">—</div></div>
-    <div class="kpi"><div class="l">Win rate</div><div class="v" id="wr">—</div></div>
+    <div class="kpi"><div class="kpi-l">Equity</div><div class="kpi-v" id="eq">—</div></div>
+    <div class="kpi"><div class="kpi-l">Return</div><div class="kpi-v" id="ret">—</div></div>
+    <div class="kpi"><div class="kpi-l">Max DD</div><div class="kpi-v" id="dd">—</div></div>
+    <div class="kpi"><div class="kpi-l">Win rate</div><div class="kpi-v" id="wr">—</div></div>
   </div>
-  <div class="panel">
-    <h2>Open position</h2>
-    <div class="posbox" id="position">Flat</div>
+
+  <div class="strip">
+    <div class="sc"><div class="l">Status</div><div class="v" id="pStatus">Flat</div></div>
+    <div class="sc"><div class="l">Symbol</div><div class="v" id="pSymbol">—</div></div>
+    <div class="sc"><div class="l">Entry</div><div class="v" id="pEntry">—</div></div>
+    <div class="sc"><div class="l">Stop</div><div class="v" id="pStop">—</div></div>
   </div>
+
   <div class="panel">
-    <h2>Recent trades</h2>
-    <table>
-      <thead><tr><th>When</th><th>Side</th><th>Symbol</th><th>PnL</th></tr></thead>
-      <tbody id="trades"></tbody>
-    </table>
+    <div class="ph"><div class="pt">Recent trades</div></div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>When</th><th>Side</th><th>Symbol</th><th>PnL</th></tr></thead>
+        <tbody id="trades"></tbody>
+      </table>
+    </div>
   </div>
+
   <div class="panel">
-    <h2>Logs</h2>
-    <div class="term" id="logs"></div>
+    <div class="ph"><div class="pt">Logs</div></div>
+    <div class="pb"><div class="term" id="logs">No logs</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="ph"><div class="pt">Walk-forward</div></div>
+    <div class="pb">
+      <div class="wf">
+        <div class="label">Research OOS</div>
+        <div class="nums" id="wfLine">—</div>
+      </div>
+    </div>
   </div>
 </div>
 <script>
 const id = location.pathname.split('/').pop();
+function $(x){ return document.getElementById(x); }
+function tickClock(){
+  $('utcClock').textContent = new Date().toISOString().slice(11, 19) + ' UTC';
+}
+setInterval(tickClock, 1000); tickClock();
+
 async function post(path){
   const res = await fetch(path,{method:'POST',cache:'no-store'});
   return res.json();
 }
+function setRunning(running){
+  const badge = $('statusBadge');
+  const text = $('statusText');
+  if(running){
+    badge.className = 'badge run';
+    text.textContent = 'Running';
+  } else {
+    badge.className = 'badge stop';
+    text.textContent = 'Stopped';
+  }
+}
 async function load(){
   const res = await fetch('/api/bots?id='+encodeURIComponent(id),{cache:'no-store'});
   const data = await res.json();
-  if(!data.ok){document.getElementById('name').textContent='Bot not found';return}
+  if(!data.ok){$('name').textContent='Bot not found';return}
   const b=data.bot;
-  document.getElementById('name').textContent=b.bot_name;
-  document.getElementById('meta').textContent=`${b.asset_class} · ${b.timeframe}${b.mode==='paper_live'?' · live paper':''}`;
-  document.getElementById('status').textContent=b.status;
-  document.getElementById('eq').textContent='$'+Number(b.equity_usdt||0).toLocaleString(undefined,{maximumFractionDigits:0});
+  $('name').textContent=b.bot_name || id;
+  $('meta').textContent=`${b.asset_class||''} · ${b.timeframe||''}${b.mode==='paper_live'?' · live paper':''}`;
+  const running = String(b.status||'').toUpperCase() === 'PAPER' || !!b.bot_running;
+  setRunning(running);
+  $('eq').textContent='$'+Number(b.equity_usdt||0).toLocaleString(undefined,{maximumFractionDigits:0});
   const ret=Number(b.total_return_pct||0);
-  document.getElementById('ret').textContent=(ret>0?'+':'')+ret.toFixed(1)+'%';
-  document.getElementById('ret').className='v '+(ret>=0?'pos':'neg');
-  document.getElementById('dd').textContent=Number(b.max_drawdown_pct||0).toFixed(1)+'%';
-  document.getElementById('wr').textContent=Number(b.win_rate_pct||0).toFixed(1)+'%';
+  $('ret').textContent=(ret>0?'+':'')+ret.toFixed(1)+'%';
+  $('ret').className='kpi-v '+(ret>=0?'pos':'neg');
+  $('dd').textContent=Number(b.max_drawdown_pct||0).toFixed(1)+'%';
+  $('wr').textContent=Number(b.win_rate_pct||0).toFixed(1)+'%';
   const p=b.current_position;
-  document.getElementById('position').textContent = p
-    ? `${p.side} ${p.symbol||''} @ ${Number(p.entry_price).toFixed(2)} · qty ${p.quantity} · stop ${Number(p.stop).toFixed(2)}`
-    : 'Flat';
-  const rows=(b.recent_trades||[]).slice(0,15).map(t=>{
+  if(p){
+    $('pStatus').textContent=(p.side||'long').toUpperCase();
+    $('pSymbol').textContent=p.symbol||'—';
+    $('pEntry').textContent=p.entry_price!=null?Number(p.entry_price).toFixed(2):'—';
+    $('pStop').textContent=p.stop!=null?Number(p.stop).toFixed(2):(p.stop_loss!=null?Number(p.stop_loss).toFixed(2):'—');
+  } else {
+    $('pStatus').textContent='Flat';
+    $('pSymbol').textContent='—';
+    $('pEntry').textContent='—';
+    $('pStop').textContent='—';
+  }
+  const rows=(b.recent_trades||[]).slice(0,20).map(t=>{
     const when=(t.exit_time||t.entry_time||t.time||'').toString().slice(0,19);
     const pnl=t.pnl_usdt==null?'—':Number(t.pnl_usdt).toFixed(2);
     const cls=Number(t.pnl_usdt||0)>=0?'pos':'neg';
     return `<tr><td>${when}</td><td>${t.side||t.type||t.reason||'—'}</td><td>${t.symbol||'—'}</td><td class="${cls}">${pnl}</td></tr>`;
   }).join('') || '<tr><td colspan="4">No trades yet — bot will trade when the next signal prints</td></tr>';
-  document.getElementById('trades').innerHTML=rows;
-  document.getElementById('logs').innerHTML=(b.logs||[]).slice(-40).map(l=>
+  $('trades').innerHTML=rows;
+  $('logs').innerHTML=(b.logs||[]).slice(-50).map(l=>
     `<div>${(l.time||'').toString().slice(11,19)} ${l.level||'INFO'} ${l.message||''}</div>`
   ).join('') || 'No logs';
+  const gates = (b.gates_passed!=null && b.gates_total!=null) ? `${b.gates_passed}/${b.gates_total} gates` : (b.accepted?'accepted':'—');
+  const wfRet = Number(b.research_return_pct||0);
+  $('wfLine').textContent =
+    `${wfRet>0?'+':''}${wfRet.toFixed(1)}% · Sharpe ${Number(b.research_sharpe_ratio||0).toFixed(2)} · DD ${Number(b.research_max_drawdown_pct||0).toFixed(1)}% · ${gates}`;
 }
 async function withBusy(btn, fn){
   btn.disabled=true;
   try{ await fn(); await load(); } finally { btn.disabled=false; }
 }
-document.getElementById('btnStart').onclick=()=>withBusy(btnStart, ()=>post('/api/bots/'+id+'/start'));
-document.getElementById('btnStop').onclick=()=>withBusy(btnStop, ()=>post('/api/bots/'+id+'/stop'));
-document.getElementById('btnOnce').onclick=()=>withBusy(btnOnce, ()=>post('/api/bots/'+id+'/run-once'));
+$('btnStart').onclick=()=>withBusy($('btnStart'), ()=>post('/api/bots/'+id+'/start'));
+$('btnStop').onclick=()=>withBusy($('btnStop'), ()=>post('/api/bots/'+id+'/stop'));
+$('btnOnce').onclick=()=>withBusy($('btnOnce'), ()=>post('/api/bots/'+id+'/run-once'));
 load(); setInterval(load,5000);
 </script>
 </body>

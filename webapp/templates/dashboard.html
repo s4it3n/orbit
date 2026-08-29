@@ -275,65 +275,6 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
   </div>
 </div>
 
-<div class="panel">
-  <div class="ph"><div class="pt">Backtest</div></div>
-  <div class="pb">
-    <div class="bt-row">
-      <div class="periods">
-        <button type="button" class="pbtn active" data-period="1m">1M</button>
-        <button type="button" class="pbtn" data-period="3m">3M</button>
-        <button type="button" class="pbtn" data-period="6m">6M</button>
-        <button type="button" class="pbtn" data-period="1y">1Y</button>
-      </div>
-      <div class="cap"><label>Capital (USDT)</label><input type="number" id="backtestCapital" value="10000" min="1" step="100"></div>
-      <button class="btn btn-primary" id="btnBacktest" onclick="runBacktest()">Run Backtest</button>
-    </div>
-    <div class="loading" id="backtestLoading"><span class="spin"></span><span>Running…</span></div>
-
-    <div id="backtestResults">
-      <div class="verdict" id="backtestVerdict"></div>
-      <div class="period-note" id="backtestPeriod"></div>
-      <div class="period-note" id="backtestNote" style="display:none;color:var(--amber);margin-top:8px"></div>
-      <div class="metrics">
-        <div class="m"><div class="ml">Return</div><div class="mv" id="btReturn">—</div></div>
-        <div class="m"><div class="ml">BTC</div><div class="mv" id="btHold">—</div></div>
-        <div class="m"><div class="ml">Basket</div><div class="mv" id="btBasket">—</div></div>
-        <div class="m"><div class="ml">Max DD</div><div class="mv" id="btDrawdown">—</div></div>
-        <div class="m"><div class="ml">Profit factor</div><div class="mv" id="btProfitFactor">—</div></div>
-        <div class="m"><div class="ml">Trades</div><div class="mv" id="btTrades">—</div></div>
-        <div class="m"><div class="ml">Fees</div><div class="mv" id="btFees">—</div></div>
-        <div class="m"><div class="ml">Cash %</div><div class="mv" id="btCash">—</div></div>
-      </div>
-      <div class="scroll" style="margin-top:12px;max-height:220px;border:1px solid var(--border);border-radius:8px" id="backtestTrades"></div>
-    </div>
-  </div>
-</div>
-
-<div class="panel" style="margin-top:12px">
-  <div class="ph">
-    <div class="pt">Walk-forward</div>
-    <span class="period-note" id="wfStatus">Updates when you save settings</span>
-  </div>
-  <div class="pb">
-    <div class="loading" id="wfLoading"><span class="spin"></span><span>Updating walk-forward…</span></div>
-    <div id="wfEmpty" class="empty">Save settings to compute walk-forward stats.</div>
-    <div id="wfResults" style="display:none">
-      <div class="verdict" id="wfVerdict"></div>
-      <div class="period-note" id="wfPeriod"></div>
-      <div class="metrics">
-        <div class="m"><div class="ml">Return</div><div class="mv" id="wfReturn">—</div></div>
-        <div class="m"><div class="ml">BTC</div><div class="mv" id="wfBtc">—</div></div>
-        <div class="m"><div class="ml">Sharpe</div><div class="mv" id="wfSharpe">—</div></div>
-        <div class="m"><div class="ml">Max DD</div><div class="mv" id="wfDrawdown">—</div></div>
-        <div class="m"><div class="ml">Profit factor</div><div class="mv" id="wfProfitFactor">—</div></div>
-        <div class="m"><div class="ml">Trades</div><div class="mv" id="wfTrades">—</div></div>
-        <div class="m"><div class="ml">Folds +</div><div class="mv" id="wfFolds">—</div></div>
-      </div>
-      <div class="scroll" style="margin-top:12px;max-height:220px;border:1px solid var(--border);border-radius:8px" id="wfFoldsTable"></div>
-    </div>
-  </div>
-</div>
-
 </div>
 
 <div class="toast" id="toast"><span class="td" id="toastDot"></span><span id="toastMsg"></span></div>
@@ -457,20 +398,6 @@ async function apiResume() {
   try { await apiCall('/api/bot/resume'); toast('Trading resumed'); refresh(); } catch (e) { toast(e.message, false); }
 }
 
-document.querySelectorAll('.pbtn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.pbtn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  });
-});
-
-function metricValue(id, value, suffix='', colorize=false) {
-  const el = $(id);
-  el.textContent = value == null || value === '' ? '—' : Number(value).toFixed(2) + suffix;
-  el.className = 'mv';
-  if (colorize && value != null) el.classList.add(Number(value) >= 0 ? 'pos' : 'neg');
-}
-
 function rankingCaption(row) {
   if (!row) return '';
   if (row.held) return row.symbol + ' · currently held';
@@ -564,172 +491,6 @@ function updateRegimeBadge(regime) {
   else { badge.className = 'rb off'; badge.textContent = 'RISK-OFF'; }
 }
 
-async function runBacktest() {
-  const button = $('btnBacktest');
-  const loading = $('backtestLoading');
-  const period = document.querySelector('.pbtn.active').dataset.period;
-  const capital = parseFloat($('backtestCapital').value);
-  if (!capital || capital <= 0) { toast('Enter a valid capital', false); return; }
-  hideAlert();
-  button.disabled = true;
-  loading.style.display = 'flex';
-  loading.lastChild.textContent = ' Loading candles and simulating…';
-  try {
-    const response = await fetch('/api/backtest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ period, initial_capital: capital }),
-    });
-    const data = await response.json();
-    if (!response.ok || data.ok === false) throw new Error(data.message || 'Backtest failed');
-    const m = data.metrics || {};
-    const ok = m.total_return_pct > 0 && m.profit_factor > 1;
-    $('backtestVerdict').textContent = ok ? 'Profitable in this period' : 'No edge in this period';
-    $('backtestVerdict').style.color = ok ? 'var(--green)' : 'var(--red)';
-    $('backtestPeriod').textContent =
-      data.period_label + ' · ' + (data.universe_size || '?') + ' symbols · ' +
-      data.timeframe + ' · ' + data.candle_count + ' bars';
-    const note = $('backtestNote');
-    if (data.note) {
-      note.style.display = 'block';
-      note.textContent = data.note;
-    } else {
-      note.style.display = 'none';
-      note.textContent = '';
-    }
-    metricValue('btReturn', m.total_return_pct, '%', true);
-    metricValue('btHold', m.buy_hold_return_pct, '%', true);
-    $('btBasket').previousElementSibling.textContent = 'Basket';
-    metricValue('btBasket', m.basket_return_pct, '%', true);
-    metricValue('btDrawdown', m.max_drawdown_pct, '%', true);
-    metricValue('btProfitFactor', m.profit_factor);
-    $('btTrades').textContent = m.trade_count != null ? m.trade_count : '—';
-    metricValue('btFees', m.fees_paid_usdt, '');
-    $('btCash').previousElementSibling.textContent = 'Cash %';
-    metricValue('btCash', m.cash_time_pct, '%');
-    $('backtestTrades').innerHTML = (data.trades && data.trades.length)
-      ? '<table><thead><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>Reason</th><th>PnL</th></tr></thead><tbody>' +
-        data.trades.map(t =>
-          '<tr><td class="mono">' + (t.symbol || '—') + '</td>' +
-          '<td class="tc">' + formatUtc(t.entry_time) + '</td>' +
-          '<td class="tc">' + formatUtc(t.exit_time) + '</td>' +
-          '<td>' + String(t.reason || '').replaceAll('_', ' ') + '</td>' +
-          '<td style="color:' + (t.pnl_usdt >= 0 ? 'var(--green)' : 'var(--red)') + '">' +
-          Number(t.pnl_usdt).toFixed(2) + '</td></tr>'
-        ).join('') + '</tbody></table>'
-      : '<div class="empty">No trades in this period</div>';
-    $('backtestResults').style.display = 'block';
-    toast('Backtest complete');
-    refresh();
-  } catch (e) {
-    showAlert('Backtest failed: ' + e.message);
-    toast(e.message, false);
-  } finally {
-    button.disabled = false;
-    loading.style.display = 'none';
-  }
-}
-
-function renderWalkForward(data) {
-  const a = (data && data.aggregate) || {};
-  const folds = (data && data.folds) || [];
-  if (!data || !data.ok || a.return_pct == null) {
-    $('wfResults').style.display = 'none';
-    $('wfEmpty').style.display = 'block';
-    $('wfStatus').textContent = 'Updates when you save settings';
-    return;
-  }
-  const ok = a.return_pct > 0 && a.profit_factor > 1;
-  $('wfEmpty').style.display = 'none';
-  $('wfResults').style.display = 'block';
-  $('wfVerdict').textContent = ok ? 'Profitable in this period' : 'No edge in this period';
-  $('wfVerdict').style.color = ok ? 'var(--green)' : 'var(--red)';
-  $('wfPeriod').textContent =
-    (folds.length || a.fold_count || '?') + ' folds · 24m train / 6m test';
-  $('wfStatus').textContent = 'Last run from current settings';
-  metricValue('wfReturn', a.return_pct, '%', true);
-  metricValue('wfBtc', a.benchmark_return_pct, '%', true);
-  metricValue('wfSharpe', a.sharpe, '', true);
-  metricValue('wfDrawdown', a.max_drawdown_pct, '%', true);
-  metricValue('wfProfitFactor', a.profit_factor);
-  $('wfTrades').textContent = a.trade_count != null ? a.trade_count : '—';
-  metricValue('wfFolds', a.positive_fold_pct, '%', true);
-  $('wfFoldsTable').innerHTML = folds.length
-    ? '<table><thead><tr><th>From</th><th>To</th><th>Return</th><th>Max DD</th><th>Trades</th></tr></thead><tbody>' +
-      folds.map(f => {
-        const t = f.test || {};
-        const ret = t.total_return_pct;
-        return '<tr><td class="tc">' + String(f.test_from || '').slice(0, 10) + '</td>' +
-          '<td class="tc">' + String(f.test_to || '').slice(0, 10) + '</td>' +
-          '<td style="color:' + (ret >= 0 ? 'var(--green)' : 'var(--red)') + '">' +
-          (ret == null ? '—' : Number(ret).toFixed(2) + '%') + '</td>' +
-          '<td>' + (t.max_drawdown_pct == null ? '—' : Number(t.max_drawdown_pct).toFixed(2) + '%') + '</td>' +
-          '<td class="mono">' + (t.trade_count != null ? t.trade_count : '—') + '</td></tr>';
-      }).join('') + '</tbody></table>'
-    : '<div class="empty">No folds in this run</div>';
-}
-
-async function readJson(response) {
-  const text = await response.text();
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    throw new Error(text.trim().slice(0, 160) || 'Server returned a non-JSON error');
-  }
-}
-
-async function pollWalkForward(showToast) {
-  const loading = $('wfLoading');
-  loading.style.display = 'flex';
-  $('wfStatus').textContent = 'Updating… this takes about a minute';
-  for (let i = 0; i < 90; i++) {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    const data = await readJson(await fetch('/api/walk-forward'));
-    if (data.running) continue;
-    loading.style.display = 'none';
-    if (data.ok) {
-      renderWalkForward(data);
-      if (showToast) toast('Walk-forward updated');
-      return;
-    }
-    throw new Error(data.message || 'Walk-forward failed');
-  }
-  throw new Error('Walk-forward timed out');
-}
-
-async function loadWalkForward() {
-  try {
-    const data = await readJson(await fetch('/api/walk-forward'));
-    if (data.running) {
-      await pollWalkForward(false);
-      return;
-    }
-    if (data && data.ok) renderWalkForward(data);
-  } catch (e) {}
-}
-
-async function refreshWalkForward() {
-  const loading = $('wfLoading');
-  const capital = parseFloat($('backtestCapital').value) || 10000;
-  loading.style.display = 'flex';
-  $('wfStatus').textContent = 'Updating… this takes about a minute';
-  try {
-    const started = await readJson(await fetch('/api/walk-forward', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ period: '1y', initial_capital: capital }),
-    }));
-    if (started.ok === false && !started.running) {
-      throw new Error(started.message || 'Walk-forward failed');
-    }
-    await pollWalkForward(true);
-  } catch (e) {
-    loading.style.display = 'none';
-    $('wfStatus').textContent = e.message || 'Update failed';
-    toast(e.message || 'Walk-forward failed', false);
-  }
-}
-
 async function saveSettings(e) {
   e.preventDefault();
   hideAlert();
@@ -774,7 +535,6 @@ async function saveSettings(e) {
     toast('Settings saved');
     refresh();
     loadChart(true);
-    refreshWalkForward();
   } catch (err) {
     showAlert(err.message || 'Failed to save settings');
     toast(err.message || 'Failed to save settings', false);
@@ -1016,7 +776,6 @@ initChart();
 connectLogs();
 refresh();
 loadChart();
-loadWalkForward();
 setInterval(refresh, 3000);
 setInterval(loadChart, 30000);
 setInterval(loadRankings, 60000);

@@ -105,10 +105,11 @@ def _live_return_pct(live: dict[str, Any]) -> float | None:
 def build_export_payload(live: dict[str, Any] | None = None) -> dict[str, Any]:
     live = live if live is not None else bot_state.load_state()
     status = _status_from_live(live)
+    # Trust engine paper equity (already faucet-mapped via exchange_equity_anchor).
+    # Do not re-cap at ORBIT_PAPER_EQUITY — that hid live gains on the platform.
     equity = live.get("equity_usdt")
     if equity is not None:
-        cap = float(live.get("paper_equity_cap") or config.ORBIT_PAPER_EQUITY)
-        equity = min(float(equity), cap)
+        equity = float(equity)
     live_return = _live_return_pct({**live, "equity_usdt": equity} if equity is not None else live)
     return {
         "bot_id": BOT_ID,
