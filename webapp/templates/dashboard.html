@@ -120,6 +120,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
 @keyframes spin{to{transform:rotate(360deg)}}
 .toast{position:fixed;bottom:20px;right:20px;z-index:99;display:none;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);padding:11px 14px;border-radius:10px;font-size:.84rem;font-weight:600;box-shadow:0 10px 28px #0008}
 .toast .td{width:7px;height:7px;border-radius:50%}
+.wf{font-size:.74rem;color:#7a8396}
+.wf .label{color:#9aa3b8;font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em}
+.wf .nums{font-family:var(--mono);margin-top:4px;color:#8b93a7;font-size:.72rem}
 </style>
 </head>
 <body>
@@ -269,6 +272,16 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
       </div>
       <button class="btn btn-primary" type="submit" style="margin-top:14px;width:100%;justify-content:center">Save settings</button>
     </form>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:12px">
+  <div class="ph"><div class="pt">Walk-forward</div></div>
+  <div class="pb">
+    <div class="wf">
+      <div class="label">Research OOS</div>
+      <div class="nums" id="wfLine">—</div>
+    </div>
   </div>
 </div>
 
@@ -755,11 +768,26 @@ async function loadRankings() {
   } catch (e) {}
 }
 
+async function loadWalkForwardResearch() {
+  try {
+    const res = await fetch('/api/bots?id=orbit', { cache: 'no-store' });
+    const data = await res.json();
+    const b = data.bot || {};
+    const gates = (b.gates_passed != null && b.gates_total != null)
+      ? `${b.gates_passed}/${b.gates_total} gates`
+      : (b.accepted ? 'accepted' : '—');
+    const wfRet = Number(b.research_return_pct || 0);
+    $('wfLine').textContent =
+      `${wfRet > 0 ? '+' : ''}${wfRet.toFixed(1)}% · Sharpe ${Number(b.research_sharpe_ratio || 0).toFixed(2)} · DD ${Number(b.research_max_drawdown_pct || 0).toFixed(1)}% · ${gates}`;
+  } catch (e) {}
+}
+
 fillForm(SETTINGS);
 initChart();
 connectLogs();
 refresh();
 loadChart();
+loadWalkForwardResearch();
 setInterval(refresh, 3000);
 setInterval(loadChart, 30000);
 setInterval(loadRankings, 60000);
