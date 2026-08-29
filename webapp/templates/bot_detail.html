@@ -87,8 +87,7 @@ a{color:inherit;text-decoration:none}
 
   <div class="controls">
     <button class="btn btn-primary" id="btnStart" type="button">Start</button>
-    <button class="btn btn-danger" id="btnStop" type="button">Stop</button>
-    <button class="btn btn-ghost" id="btnOnce" type="button">Run once</button>
+    <button class="btn btn-danger" id="btnStop" type="button" disabled>Stop</button>
   </div>
   <div class="note" id="modeNote">Paper test money · Yahoo marks (not a live broker)</div>
 
@@ -157,6 +156,8 @@ function setRunning(running){
     badge.className = 'badge stop';
     text.textContent = 'Stopped';
   }
+  $('btnStart').disabled = !!running;
+  $('btnStop').disabled = !running;
 }
 async function load(){
   const res = await fetch('/api/bots?id='+encodeURIComponent(id),{cache:'no-store'});
@@ -202,12 +203,14 @@ async function load(){
     `${wfRet>0?'+':''}${wfRet.toFixed(1)}% · Sharpe ${Number(b.research_sharpe_ratio||0).toFixed(2)} · DD ${Number(b.research_max_drawdown_pct||0).toFixed(1)}% · ${gates}`;
 }
 async function withBusy(btn, fn){
-  btn.disabled=true;
-  try{ await fn(); await load(); } finally { btn.disabled=false; }
+  const start = $('btnStart');
+  const stop = $('btnStop');
+  start.disabled = true;
+  stop.disabled = true;
+  try{ await fn(); await load(); } finally { /* load() restores Start/Stop enabled state */ }
 }
 $('btnStart').onclick=()=>withBusy($('btnStart'), ()=>post('/api/bots/'+id+'/start'));
 $('btnStop').onclick=()=>withBusy($('btnStop'), ()=>post('/api/bots/'+id+'/stop'));
-$('btnOnce').onclick=()=>withBusy($('btnOnce'), ()=>post('/api/bots/'+id+'/run-once'));
 load(); setInterval(load,5000);
 </script>
 </body>

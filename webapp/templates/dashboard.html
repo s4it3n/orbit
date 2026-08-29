@@ -147,9 +147,6 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
 <div class="controls">
   <button class="btn btn-primary" id="btnStart" onclick="apiStart()">Start</button>
   <button class="btn btn-danger" id="btnStop" onclick="apiStop()" disabled>Stop</button>
-  <button class="btn btn-ghost" id="btnRunOnce" onclick="apiRunOnce()">Run Once</button>
-  <button class="btn btn-ghost" id="btnPause" onclick="apiPause()">Pause</button>
-  <button class="btn btn-ghost" id="btnResume" onclick="apiResume()">Resume</button>
 </div>
 
 <div class="kpis">
@@ -386,17 +383,6 @@ async function apiStop() {
   hideAlert();
   try { await apiCall('/api/bot/stop'); toast('Bot stopped'); refresh(); } catch (e) { toast(e.message, false); }
 }
-async function apiRunOnce() {
-  hideAlert();
-  try { await apiCall('/api/bot/run-once'); toast('Running one iteration…'); setTimeout(refresh, 2000); }
-  catch (e) { showAlert(e.message); toast(e.message, false); }
-}
-async function apiPause() {
-  try { await apiCall('/api/bot/pause'); toast('Trading paused'); refresh(); } catch (e) { toast(e.message, false); }
-}
-async function apiResume() {
-  try { await apiCall('/api/bot/resume'); toast('Trading resumed'); refresh(); } catch (e) { toast(e.message, false); }
-}
 
 function rankingCaption(row) {
   if (!row) return '';
@@ -632,8 +618,6 @@ async function refresh() {
 
     $('btnStart').disabled = running;
     $('btnStop').disabled = !running;
-    $('btnPause').disabled = !running || paused;
-    $('btnResume').disabled = !running || !paused;
 
     const badge = $('statusBadge');
     if (!running) {
