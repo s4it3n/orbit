@@ -65,11 +65,29 @@ Open `http://YOUR_VM_IP:8080`.
 
 ---
 
-## D. Updates
+## D. Updates (auto on push)
 
-`orbit-update.timer` pulls `main` every 5 minutes. `/opt/orbit/.env` is not in git, so pulls do not overwrite keys.
+Pushes to `main` run `.github/workflows/deploy.yml`, which SSHs in and runs `sudo /opt/orbit/deploy/update.sh`.
 
-For instant deploys, set GitHub Actions secrets `OCI_HOST`, `OCI_USER` (`opc`), `OCI_SSH_KEY` (private key text).
+`update.sh` pulls the tip of `main` via **git** if `/opt/orbit` is a checkout, otherwise via the **GitHub tarball** (no `git` package required — better for tiny Always Free VMs). `.env`, `.venv`, and ledger JSON are preserved.
+
+Optional backup: enable `orbit-update.timer` (every 5 minutes). First successful `update.sh` enables it.
+
+GitHub Actions secrets:
+
+| Secret | Value |
+|---|---|
+| `OCI_HOST` | VM public IP |
+| `OCI_USER` | `opc` |
+| `OCI_SSH_KEY` | private SSH key text (same key that logs you in) |
+
+Optional one-time git checkout (only if you want git-based pulls):
+
+```bash
+sudo bash /opt/orbit/deploy/bootstrap_git.sh
+```
+
+Requires `git` installed; skip this on micros that OOM during `dnf install git`.
 
 ---
 

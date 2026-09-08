@@ -21,6 +21,7 @@ mnq_live.json
 gold_settings.json
 mnq_settings.json
 desk_daily.json
+.orbit_deploy_rev
 
 # Python
 __pycache__/

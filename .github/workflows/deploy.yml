@@ -20,8 +20,9 @@ jobs:
             exit 0
           fi
           mkdir -p ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          # Key may be RSA or ed25519; filename does not matter to ssh.
+          printf '%s\n' "$KEY" > ~/.ssh/oci_deploy
+          chmod 600 ~/.ssh/oci_deploy
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
-          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/id_ed25519 \
+          ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i ~/.ssh/oci_deploy \
             "$USER@$HOST" 'sudo /opt/orbit/deploy/update.sh'
