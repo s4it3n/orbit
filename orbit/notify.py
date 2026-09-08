@@ -1,7 +1,8 @@
-"""Telegram alerts for trades and material failures.
+"""Telegram alerts for trades, material failures, and a daily desk digest.
 
 Every filled trade names the bot, then shows all three paper books and the
-combined desk equity / P&L. Daily digests are not sent.
+combined desk equity / P&L. Once per UTC day (after TELEGRAM_DAILY_HOUR) a
+short summary covers day P&L, closed trades, and open positions.
 """
 
 from __future__ import annotations
@@ -9,9 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from . import config, data
 
@@ -36,13 +40,23 @@ _EXIT_LABELS = {
 
 CRYPTO_BOT = "Crypto"
 GOLD_BOT = "Gold"
-MNQ_BOT = "MNQ"
+MNQ_BOT = "QQQ"
 
 _STATE_FILES = {
     CRYPTO_BOT: ROOT / "orbit_state.json",
     GOLD_BOT: ROOT / "gold_state.json",
     MNQ_BOT: ROOT / "mnq_state.json",
 }
+_LIVE_FILES = {
+    CRYPTO_BOT: ROOT / "bot_state.json",
+    GOLD_BOT: ROOT / "gold_live.json",
+    MNQ_BOT: ROOT / "mnq_live.json",
+}
+_DAILY_PATH = ROOT / "desk_daily.json"
+_DAILY_LOCK = threading.Lock()
+
+# Send once per UTC day at/after this hour (default 21:00 UTC).
+TELEGRAM_DAILY_HOUR = int(os.getenv("TELEGRAM_DAILY_HOUR", "21"))
 
 
 def is_configured() -> bool:
@@ -107,7 +121,7 @@ def paper_equity(value: float | None = None) -> float:
     """Sanitize crypto balances for Telegram.
 
     Never show the Binance testnet faucet (~$10k). Legitimate paper equity
-    from a bot ledger (which can move above the starting $1k) is left intact.
+    from a bot ledger (which can move above the starting paper book) is left intact.
     """
     cap = float(config.ORBIT_PAPER_EQUITY)
     if value is None:
@@ -175,7 +189,7 @@ def format_desk_block(
     return (
         f"Crypto  {_usdt(books[CRYPTO_BOT])}\n"
         f"Gold    {_usdt(books[GOLD_BOT])}\n"
-        f"MNQ     {_usdt(books[MNQ_BOT])}\n"
+        f"QQQ     {_usdt(books[MNQ_BOT])}\n"
         f"desk    {_usdt(total)}  ({sign}{_usdt(abs(pnl))})"
     )
 
@@ -259,7 +273,7 @@ def format_daily(
     top: str | None,
     equity: float,
 ) -> str:
-    # Kept for tests / manual use — not sent by the live loop anymore.
+    """Legacy crypto-only daily line (kept for older tests / callers)."""
     regime = "BTC risk-on" if risk_on else "BTC risk-off"
     held_name = _coin(held) if held else "cash"
     extra = ""
@@ -272,6 +286,218 @@ def format_daily(
         f"{regime} · {held_name}"
         f"{extra}"
     )
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    try:
+        if not path.exists():
+            return {}
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return {}
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _trades_closed_on(day: str) -> list[dict[str, Any]]:
+    """Closed Gold/MNQ trades + crypto EXIT ops for a UTC calendar day."""
+    rows: list[dict[str, Any]] = []
+    for bot, path in (
+        (GOLD_BOT, _LIVE_FILES[GOLD_BOT]),
+        (MNQ_BOT, _LIVE_FILES[MNQ_BOT]),
+    ):
+        live = _load_json(path)
+        for trade in list(live.get("trades") or []):
+            ts = _parse_ts(trade.get("exit_time"))
+            if ts is None or ts.date().isoformat() != day:
+                continue
+            rows.append({
+                "bot": bot,
+                "symbol": trade.get("symbol") or "?",
+                "pnl": float(trade.get("pnl_usdt") or 0.0),
+                "reason": trade.get("reason") or "closed",
+            })
+    crypto = _load_json(_LIVE_FILES[CRYPTO_BOT])
+    for op in list(crypto.get("operations") or []):
+        if op.get("type") not in {"EXIT", "TAKE_PROFIT"}:
+            continue
+        ts = _parse_ts(op.get("time"))
+        if ts is None or ts.date().isoformat() != day:
+            continue
+        try:
+            pnl_f = float(op.get("pnl_usdt") or 0.0)
+        except (TypeError, ValueError):
+            pnl_f = 0.0
+        symbol = op.get("symbol") or "?"
+        rows.append({
+            "bot": CRYPTO_BOT,
+            "symbol": _coin(str(symbol)),
+            "pnl": pnl_f,
+            "reason": str(op.get("type") or "closed").lower(),
+        })
+    return rows
+
+
+def _open_positions() -> list[str]:
+    lines: list[str] = []
+    crypto = _load_json(_LIVE_FILES[CRYPTO_BOT])
+    pos = crypto.get("position") or {}
+    if pos.get("status") == "long" and pos.get("symbol"):
+        lines.append(f"Crypto  long {_coin(str(pos['symbol']))}")
+    for bot, path in ((GOLD_BOT, _LIVE_FILES[GOLD_BOT]), (MNQ_BOT, _LIVE_FILES[MNQ_BOT])):
+        live = _load_json(path)
+        lot = live.get("position")
+        if isinstance(lot, dict) and lot.get("side"):
+            sym = "XAU/USD" if bot == GOLD_BOT else "QQQ"
+            lines.append(f"{bot}  {lot['side']} {sym}")
+    return lines
+
+
+def _crypto_regime_line() -> str:
+    live = _load_json(_LIVE_FILES[CRYPTO_BOT])
+    regime = live.get("regime") or {}
+    if regime.get("market_shock"):
+        return "BTC shock"
+    if regime.get("risk_on") is True:
+        return "BTC risk-on"
+    if regime.get("risk_on") is False:
+        return "BTC risk-off"
+    exported = _load_json(_STATE_FILES[CRYPTO_BOT])
+    reg2 = exported.get("regime") or {}
+    if reg2.get("risk_on") is True:
+        return "BTC risk-on"
+    if reg2.get("risk_on") is False:
+        return "BTC risk-off"
+    return "BTC —"
+
+
+def format_desk_daily(
+    *,
+    day: str,
+    books: dict[str, float],
+    open_books: dict[str, float],
+    trades: list[dict[str, Any]],
+    positions: list[str],
+    regime: str,
+) -> str:
+    """End-of-day desk summary for Telegram."""
+    start = sum(float(open_books.get(b) or _starting_book(b)) for b in (CRYPTO_BOT, GOLD_BOT, MNQ_BOT))
+    total = sum(float(books[b]) for b in (CRYPTO_BOT, GOLD_BOT, MNQ_BOT))
+    day_pnl = total - start
+    sign = "+" if day_pnl >= 0 else "−"
+    lines = [
+        f"<b>Orbit · daily</b>  {day} UTC",
+        f"Crypto  {_usdt(books[CRYPTO_BOT])}  ({_usdt(books[CRYPTO_BOT] - float(open_books.get(CRYPTO_BOT, _starting_book(CRYPTO_BOT))), signed=True)})",
+        f"Gold    {_usdt(books[GOLD_BOT])}  ({_usdt(books[GOLD_BOT] - float(open_books.get(GOLD_BOT, _starting_book(GOLD_BOT))), signed=True)})",
+        f"QQQ     {_usdt(books[MNQ_BOT])}  ({_usdt(books[MNQ_BOT] - float(open_books.get(MNQ_BOT, _starting_book(MNQ_BOT))), signed=True)})",
+        f"desk    {_usdt(total)}  ({sign}{_usdt(abs(day_pnl))} day)",
+        regime,
+    ]
+    if trades:
+        wins = sum(1 for t in trades if float(t.get("pnl") or 0) > 0)
+        losses = sum(1 for t in trades if float(t.get("pnl") or 0) < 0)
+        realized = sum(float(t.get("pnl") or 0) for t in trades)
+        rsign = "+" if realized >= 0 else "−"
+        lines.append(
+            f"trades  {len(trades)} closed  ({wins}W/{losses}L)  "
+            f"{rsign}{_usdt(abs(realized))} realized"
+        )
+        # Show up to 5 trade lines.
+        for trade in trades[:5]:
+            tsign = "+" if float(trade["pnl"]) >= 0 else "−"
+            lines.append(
+                f"· {trade['bot']} {_coin(str(trade['symbol']))}  "
+                f"{tsign}{_usdt(abs(float(trade['pnl'])))}"
+            )
+        if len(trades) > 5:
+            lines.append(f"· … +{len(trades) - 5} more")
+    else:
+        lines.append("trades  none closed")
+    if positions:
+        lines.append("open  " + " · ".join(positions))
+    else:
+        lines.append("open  flat")
+    return "\n".join(lines)
+
+
+def build_desk_daily(*, day: str | None = None) -> str:
+    """Assemble today's digest from live ledgers."""
+    now = datetime.now(timezone.utc)
+    day = day or now.date().isoformat()
+    books = desk_books()
+    snap = _load_json(_DAILY_PATH)
+    open_books = snap.get("open_books") if isinstance(snap.get("open_books"), dict) else {}
+    # Normalize keys
+    open_norm = {
+        CRYPTO_BOT: float(open_books.get(CRYPTO_BOT, _starting_book(CRYPTO_BOT))),
+        GOLD_BOT: float(open_books.get(GOLD_BOT, _starting_book(GOLD_BOT))),
+        MNQ_BOT: float(open_books.get(MNQ_BOT, _starting_book(MNQ_BOT))),
+    }
+    return format_desk_daily(
+        day=day,
+        books=books,
+        open_books=open_norm,
+        trades=_trades_closed_on(day),
+        positions=_open_positions(),
+        regime=_crypto_regime_line(),
+    )
+
+
+def _save_daily_state(payload: dict[str, Any]) -> None:
+    try:
+        _DAILY_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError as exc:
+        log.error("Failed to write desk_daily.json: %s", exc)
+
+
+def maybe_notify_daily_desk(*, force: bool = False) -> bool:
+    """Send the desk daily digest once per UTC day after TELEGRAM_DAILY_HOUR.
+
+    Safe to call from every bot loop. Returns True if a message was sent.
+    """
+    if not is_configured() and not force:
+        return False
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    with _DAILY_LOCK:
+        snap = _load_json(_DAILY_PATH)
+        # Seed open-of-day books on first sight of a new UTC day.
+        if snap.get("open_day") != today:
+            books = desk_books()
+            snap = {
+                "open_day": today,
+                "open_books": {
+                    CRYPTO_BOT: books[CRYPTO_BOT],
+                    GOLD_BOT: books[GOLD_BOT],
+                    MNQ_BOT: books[MNQ_BOT],
+                },
+                "last_sent": snap.get("last_sent"),
+            }
+            _save_daily_state(snap)
+        if not force:
+            if snap.get("last_sent") == today:
+                return False
+            if now.hour < TELEGRAM_DAILY_HOUR:
+                return False
+        text = build_desk_daily(day=today)
+        ok = send(text) if is_configured() else True
+        if ok or force:
+            snap["last_sent"] = today
+            snap["last_text"] = text
+            _save_daily_state(snap)
+            log.info("Telegram daily desk digest sent for %s", today)
+        return bool(ok)
 
 
 def format_paper_entry(
@@ -408,8 +634,8 @@ def notify_daily(
     top: str | None,
     equity: float,
 ) -> None:
-    # Intentionally no-op: trade fills are the useful alerts.
-    return
+    """Compatibility wrapper — prefer ``maybe_notify_daily_desk``."""
+    maybe_notify_daily_desk()
 
 
 def notify_deploy(sha: str, branch: str = "main") -> None:
@@ -421,9 +647,21 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Orbit Telegram helper.")
     parser.add_argument("--deploy", nargs=2, metavar=("SHA", "BRANCH"))
+    parser.add_argument(
+        "--daily",
+        action="store_true",
+        help="Send (or force) the desk daily digest now.",
+    )
+    parser.add_argument(
+        "--force-daily",
+        action="store_true",
+        help="Send the desk daily digest even if already sent today.",
+    )
     args = parser.parse_args()
     if args.deploy:
         notify_deploy(args.deploy[0], args.deploy[1])
+    if args.daily or args.force_daily:
+        maybe_notify_daily_desk(force=bool(args.force_daily or args.daily))
 
 
 if __name__ == "__main__":

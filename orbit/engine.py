@@ -19,6 +19,7 @@ import pandas as pd
 
 from . import config, data, execution, strategy, state as bot_state, notify as tg, universe
 from . import exporter as orbit_exporter
+from paper.costs import effective_crypto_fee, notional_slip
 
 logging.basicConfig(
     level=logging.INFO,
@@ -205,6 +206,74 @@ def _persist_book(book: list[dict], **extra) -> None:
     bot_state.update_state(**payload)
 
 
+def _read_paper_cash() -> float | None:
+    raw = bot_state.load_state().get("paper_cash_usdt")
+    if raw is None:
+        return None
+    return float(raw)
+
+
+def _write_paper_cash(value: float) -> None:
+    bot_state.update_state(paper_cash_usdt=round(float(value), 8))
+
+
+def _position_entry_spend(book: list[dict]) -> float:
+    """USDT spent to open current lots (entry notional + entry fees/slip)."""
+    spent = 0.0
+    for item in book:
+        if not _is_long(item):
+            continue
+        qty = float(item.get("quantity") or 0.0)
+        entry = float(item.get("entry_price") or 0.0)
+        spent += qty * entry + float(item.get("paper_entry_cost") or 0.0)
+    return spent
+
+
+def _bootstrap_paper_cash(
+    book: list[dict],
+    frames: dict[str, pd.DataFrame] | None,
+    *,
+    fallback_equity: float | None = None,
+) -> float:
+    """Idle cash ledger: prefer stored value; else derive once and persist.
+
+    Idle is USDT not spent on fills — it must not move when marks tick.
+    """
+    existing = _read_paper_cash()
+    if existing is not None:
+        return existing
+    paper_cap = float(config.ORBIT_PAPER_EQUITY)
+    if not book:
+        cash = float(fallback_equity) if fallback_equity is not None else paper_cap
+    else:
+        spent = _position_entry_spend(book)
+        # Prefer entry reconstruction (matches "I had $100 and bought SOL").
+        if 0 < spent <= paper_cap * 1.1:
+            cash = max(0.0, paper_cap - spent)
+        elif fallback_equity is not None:
+            # One-time freeze of today's idle = total − coins@mark.
+            cash = max(0.0, float(fallback_equity) - _paper_open_value(book, frames))
+        else:
+            cash = max(0.0, paper_cap - spent)
+    _write_paper_cash(cash)
+    return cash
+
+
+def _debit_paper_cash(amount: float) -> float:
+    live = bot_state.load_state()
+    cash = float(live.get("paper_cash_usdt") if live.get("paper_cash_usdt") is not None else config.ORBIT_PAPER_EQUITY)
+    cash = max(0.0, cash - float(amount))
+    _write_paper_cash(cash)
+    return cash
+
+
+def _credit_paper_cash(amount: float) -> float:
+    live = bot_state.load_state()
+    cash = float(live.get("paper_cash_usdt") if live.get("paper_cash_usdt") is not None else config.ORBIT_PAPER_EQUITY)
+    cash = cash + float(amount)
+    _write_paper_cash(cash)
+    return cash
+
 def _fetch_live_frames() -> dict[str, pd.DataFrame]:
     """Pull recent daily candles for the universe + regime symbol."""
     symbols = universe.symbols_to_fetch(config.UNIVERSE)
@@ -286,26 +355,102 @@ def _total_equity(
     return equity
 
 
-def _paper_display_equity(raw_equity: float | None) -> float:
-    """Map exchange equity into the ~$ORBIT_PAPER_EQUITY paper book."""
+def _paper_display_equity(
+    raw_equity: float | None,
+    book: list[dict] | None = None,
+    frames: dict[str, pd.DataFrame] | None = None,
+) -> float:
+    """Paper book equity for guards / Telegram.
+
+    Prefer the spot cash ledger (idle + marks). Fall back to exchange-anchor
+    mapping before the ledger exists. Fees live only in the cash ledger —
+    never subtract a second ``paper_cost_drag``.
+    """
     paper_cap = float(config.ORBIT_PAPER_EQUITY)
+    cash = _read_paper_cash()
+    if cash is not None:
+        if book is not None:
+            return round(float(cash) + _paper_open_value(book, frames), 2)
+        live_eq = bot_state.load_state().get("equity_usdt")
+        if live_eq is not None:
+            return float(live_eq)
+        return float(cash)
     if raw_equity is None:
         return paper_cap
     live = bot_state.load_state()
     raw_anchor = live.get("exchange_equity_anchor")
     if raw_anchor is None:
         # Until the first sync anchors, never advertise the faucet balance.
-        return min(float(raw_equity), paper_cap)
+        return max(0.0, min(float(raw_equity), paper_cap))
     anchor = float(raw_anchor)
     if anchor > 0:
         return max(0.0, paper_cap + (float(raw_equity) - anchor))
-    return min(float(raw_equity), paper_cap)
+    return max(0.0, min(float(raw_equity), paper_cap))
+
+
+def _paper_open_pnl(book: list[dict], frames: dict[str, pd.DataFrame] | None) -> float:
+    """Unrealized paper PnL on open lots (mark − entry), minus leftover entry costs."""
+    frames = frames or {}
+    total = 0.0
+    for item in book:
+        if not _is_long(item):
+            continue
+        entry = float(item.get("entry_price") or 0.0)
+        qty = float(item.get("quantity") or 0.0)
+        if entry <= 0 or qty <= 0:
+            continue
+        mark = _position_mark(item, frames)
+        if mark is None:
+            continue
+        total += (float(mark) - entry) * qty
+        total -= float(item.get("paper_entry_cost") or 0.0)
+    return total
+
+
+def _paper_open_value(book: list[dict], frames: dict[str, pd.DataFrame] | None) -> float:
+    """Current mark value of open lots (capital tied up in running trades)."""
+    frames = frames or {}
+    total = 0.0
+    for item in book:
+        if not _is_long(item):
+            continue
+        qty = float(item.get("quantity") or 0.0)
+        if qty <= 0:
+            continue
+        mark = _position_mark(item, frames)
+        if mark is None:
+            entry = float(item.get("entry_price") or 0.0)
+            mark = entry
+        if mark <= 0:
+            continue
+        total += float(mark) * qty
+    return total
+
+
+def _paper_fill_costs(fill: execution.FillResult) -> tuple[float, float]:
+    """Retail fee floor + slip for one fill. Applied only via the cash ledger / PnL.
+
+    Does not accumulate ``paper_cost_drag`` (that double-counted once idle cash
+    already deducted the same friction).
+    """
+    notional = float(fill.quantity) * float(fill.average_price)
+    fee = effective_crypto_fee(fill.fee, notional)
+    slip = notional_slip(notional)
+    return fee, slip
+
+
+def _accrue_paper_drag(fill: execution.FillResult) -> tuple[float, float]:
+    """Deprecated alias — use ``_paper_fill_costs``."""
+    return _paper_fill_costs(fill)
 
 
 def _paper_equity_after_trade(
     book: list[dict],
     frames: dict[str, pd.DataFrame] | None = None,
 ) -> float:
+    cash = _read_paper_cash()
+    if cash is not None:
+        return round(float(cash) + _paper_open_value(book, frames), 2)
     try:
         snapshot = execution.fetch_balances(config.exchange, config.REGIME_SYMBOL)
         raw = _total_equity(snapshot, book, frames)
@@ -388,7 +533,13 @@ def _sync_state(
     market: dict | None = None,
     circuit: dict | None = None,
 ) -> None:
-    if book is None:
+    if book is None and position is None:
+        # Preserve the open book on partial syncs (e.g. Binance fetch failures).
+        # Passing neither book nor position used to wipe lots to flat.
+        live = bot_state.load_state()
+        book = _load_book(live)
+        position = _primary(book)
+    elif book is None:
         book = [position] if _is_long(position) else []
     position = _primary(book)
     equity = None
@@ -398,7 +549,7 @@ def _sync_state(
     if snapshot is not None:
         equity = _total_equity(snapshot, book, frames, price)
         # Map testnet balance into a $ORBIT_PAPER_EQUITY paper book via an anchor.
-        # First sync (or missing anchor) sets the baseline so UI starts near $1k.
+        # First sync (or missing anchor) sets the baseline so UI starts near paper cap.
         live = bot_state.load_state()
         raw_anchor = live.get("exchange_equity_anchor")
         if raw_anchor is None and equity is not None:
@@ -409,18 +560,58 @@ def _sync_state(
             display_equity = max(0.0, paper_cap + (float(equity) - anchor))
         elif equity is not None:
             display_equity = min(float(equity), paper_cap)
-    drawdown = 0.0
-    if guard.start_balance > 0 and equity is not None:
-        drawdown = max(0.0, (guard.start_balance - equity) / guard.start_balance)
+        # Fees/slip are in paper_cash already — do not subtract paper_cost_drag.
     symbols = _held_symbols(book)
+    cash_display = None
+    open_pnl = 0.0
+    equity_rounded = None
+    if display_equity is not None or book:
+        open_value = _paper_open_value(book, frames) if book else 0.0
+        # Spot-style idle cash ledger (stable when marks move).
+        paper_cash = _bootstrap_paper_cash(
+            book,
+            frames,
+            fallback_equity=float(display_equity) if display_equity is not None else None,
+        )
+        if book:
+            open_pnl = _paper_open_pnl(book, frames)
+            entry_notional = sum(
+                float(item.get("quantity") or 0.0) * float(item.get("entry_price") or 0.0)
+                for item in book
+                if _is_long(item)
+            )
+            max_paper = paper_cap * float(config.MAX_PORTFOLIO_EXPOSURE)
+            if entry_notional > max_paper * 1.25 and entry_notional > 0:
+                scale = max_paper / entry_notional
+                open_pnl *= scale
+                open_value *= scale
+            open_pnl = round(open_pnl, 2)
+            open_value = round(open_value, 2)
+            # Total = idle cash + coins at mark (fees already left idle on buy).
+            equity_rounded = round(paper_cash + open_value, 2)
+            cash_display = round(paper_cash, 2)
+        else:
+            open_pnl = 0.0
+            # Flat: cash ledger is both idle and total (do not re-anchor from
+            # exchange-mapped equity — that used to double-count fee drag).
+            equity_rounded = round(paper_cash, 2)
+            cash_display = equity_rounded
+    drawdown = 0.0
+    # Daily DD on ledger equity (idle + marks), not the testnet faucet.
+    paper_for_dd = (
+        equity_rounded if equity_rounded is not None
+        else display_equity if display_equity is not None
+        else equity
+    )
+    if guard.start_balance > 0 and paper_for_dd is not None:
+        drawdown = max(0.0, (guard.start_balance - paper_for_dd) / guard.start_balance)
     fields: dict = {
         "balance_usdt": snapshot.quote_free if snapshot else None,
-        "equity_usdt": display_equity,
         "paper_equity_cap": paper_cap,
         "exchange_equity_usdt": equity,
-        "exchange_equity_anchor": float(anchor) if anchor is not None else None,
         "base_balance": snapshot.base_total if snapshot else None,
-        "start_of_day_balance": guard.start_balance or equity,
+        "start_of_day_balance": guard.start_balance or display_equity or equity,
+        "paper_cost_drag": 0.0,  # deprecated; fees live in paper_cash_usdt only
         "daily_drawdown_pct": round(drawdown * 100, 2),
         "trading_paused": guard.trading_paused or not config.BOT_ENABLED,
         "pause_reason": (
@@ -434,6 +625,16 @@ def _sync_state(
         "positions": book,
         "position": position,
     }
+    if anchor is not None:
+        fields["exchange_equity_anchor"] = float(anchor)
+    if cash_display is not None:
+        fields["cash_usdt"] = cash_display
+        fields["paper_cash_usdt"] = cash_display
+        fields["open_pnl_usdt"] = open_pnl
+    if equity_rounded is not None:
+        fields["equity_usdt"] = equity_rounded
+    elif display_equity is not None:
+        fields["equity_usdt"] = display_equity
     if market is not None:
         fields["market"] = market
     if candles is not None:
@@ -485,12 +686,19 @@ def _exit_long(
         execution.client_order_id(symbol, candle_ts, f"exit-{reason}"),
     )
     entry = float(position.get("entry_price") or fill.average_price)
-    pnl = (fill.average_price - entry) * fill.quantity - fill.fee
+    fee, slip = _paper_fill_costs(fill)
+    entry_cost = float(position.get("paper_entry_cost") or 0.0)
+    # Scale stored entry cost if this is a partial exit.
+    orig_qty = float(position.get("quantity") or fill.quantity) or fill.quantity
+    entry_cost *= fill.quantity / orig_qty if orig_qty else 1.0
+    pnl = (fill.average_price - entry) * fill.quantity - fee - slip - entry_cost
+    # Spot cash: sell proceeds return to idle (fees/slip leave the ledger).
+    _credit_paper_cash(fill.quantity * fill.average_price - fee - slip)
     _persist_book(remaining, **extra)
     bot_state.append_operation(
         "EXIT",
         f"SELL {symbol} {fill.quantity:.8f} @ {data.round_price(fill.average_price)} ({reason})",
-        {"pnl_usdt": pnl, "order_id": fill.order_id, "symbol": symbol},
+        {"pnl_usdt": pnl, "order_id": fill.order_id, "symbol": symbol, "fee_usdt": fee + slip},
     )
     tg.notify_exit(
         symbol,
@@ -541,10 +749,20 @@ def _reduce_long(
         execution.client_order_id(symbol, candle_ts, reason.replace("_", "-")[:24]),
     )
     entry = float(position.get("entry_price") or fill.average_price)
-    pnl = (fill.average_price - entry) * fill.quantity - fill.fee
+    fee, slip = _paper_fill_costs(fill)
+    prior_qty = float(position.get("quantity") or 0.0) or fill.quantity
+    entry_cost = float(position.get("paper_entry_cost") or 0.0) * (
+        fill.quantity / prior_qty if prior_qty else 1.0
+    )
+    pnl = (fill.average_price - entry) * fill.quantity - fee - slip - entry_cost
+    _credit_paper_cash(fill.quantity * fill.average_price - fee - slip)
     position["quantity"] = max(
         0.0, float(position.get("quantity") or 0.0) - fill.quantity
     )
+    if position.get("paper_entry_cost") is not None:
+        position["paper_entry_cost"] = max(
+            0.0, float(position["paper_entry_cost"]) - entry_cost
+        )
     if reason == "take_profit":
         position["tp_taken"] = True
     remaining_qty = float(position["quantity"])
@@ -603,7 +821,7 @@ def _enter_long(
         log.info("All %d slots are filled — skipping %s.", rules.max_positions, candidate.symbol)
         return book
     raw_equity = _total_equity(snapshot, book, frames)
-    # Size off paper capital so testnet balances >> $1k do not inflate live sizing.
+    # Size off paper capital so testnet balances >> paper book do not inflate live sizing.
     equity = min(raw_equity, float(config.ORBIT_PAPER_EQUITY))
     deployed = 0.0
     for item in book:
@@ -636,6 +854,11 @@ def _enter_long(
     )
     if fill.quantity <= 0:
         raise ccxt.InvalidOrder("Entry order did not report a filled quantity.")
+    fee, slip = _paper_fill_costs(fill)
+    paper_entry_cost = fee + slip
+    # Spot cash: buy spends idle USDT (notional + fees/slip). Marks never touch this.
+    _bootstrap_paper_cash(book, frames)
+    _debit_paper_cash(fill.quantity * fill.average_price + paper_entry_cost)
     initial_stop = strategy.initial_stop_price(
         fill.average_price, candidate.atr, rules.atr_sl_mult
     )
@@ -659,6 +882,7 @@ def _enter_long(
         "entry_order_id": fill.order_id,
         "protective_order_ids": [],
         "protection_status": "software",
+        "paper_entry_cost": paper_entry_cost,
     }
     try:
         ids = execution.place_catastrophic_stop(
@@ -698,11 +922,20 @@ def _enter_long(
     return book
 
 
+def _export_dashboard() -> None:
+    """Push live paper equity to orbit_state.json for the main platform page."""
+    try:
+        orbit_exporter.export_state()
+    except Exception:
+        log.exception("Failed to export orbit_state.json")
+
+
 def run_iteration(guard: DrawdownGuard) -> None:
     config.reload_settings()
     if not config.BOT_ENABLED:
         log.info("Orbit paused via dashboard — skipping iteration.")
         _sync_state(guard)
+        _export_dashboard()
         return
 
     try:
@@ -715,10 +948,18 @@ def run_iteration(guard: DrawdownGuard) -> None:
         )
     except (ccxt.BaseError, ValueError) as exc:
         log.error("Failed to fetch account or market data: %s", exc)
+        detail = str(exc)
         if isinstance(exc, ccxt.BaseError):
             _explain_auth_error(exc)
-        _notify_error_once("iteration_fetch", "Failed to fetch bot data", str(exc))
+            if "-1021" in detail or "Timestamp" in detail or "recvWindow" in detail:
+                detail = (
+                    "Binance clock skew (-1021): server time drifted vs Binance. "
+                    "Retrying next loop; open lots are kept."
+                )
+        _notify_error_once("iteration_fetch", "Failed to fetch bot data", detail)
+        # Keep existing position/cash — do not pass an empty book.
         _sync_state(guard)
+        _export_dashboard()
         return
 
     state_now = bot_state.load_state()
@@ -746,7 +987,8 @@ def run_iteration(guard: DrawdownGuard) -> None:
         _persist_book(book)
 
     equity = _total_equity(snapshot, book, frames)
-    guard.reset_if_new_day(equity)
+    paper_equity = _paper_display_equity(equity, book, frames)
+    guard.reset_if_new_day(paper_equity)
     held = _held_symbols(book)
     chart_symbol = held[0] if held else config.REGIME_SYMBOL
     chart_frame = frames.get(chart_symbol, regime_frame)
@@ -756,7 +998,7 @@ def run_iteration(guard: DrawdownGuard) -> None:
         else float(regime_latest["close"])
     )
 
-    if not guard.check(equity):
+    if not guard.check(paper_equity):
         if config.FLATTEN_ON_DRAWDOWN:
             for position in list(book):
                 price = _position_mark(position, frames) or primary_mark
@@ -899,6 +1141,7 @@ def run_iteration(guard: DrawdownGuard) -> None:
     }
 
     if state_now.get("last_processed_candle_ts") == candle_ts:
+        # Same daily bar: still refresh marks / paper equity for the dashboards.
         _sync_state(
             guard,
             snapshot=snapshot,
@@ -912,6 +1155,7 @@ def run_iteration(guard: DrawdownGuard) -> None:
             market=market,
             circuit=circuit,
         )
+        _export_dashboard()
         return
 
     cooldown = max(0, int(state_now.get("cooldown_days_remaining") or 0) - 1)
@@ -971,8 +1215,11 @@ def run_iteration(guard: DrawdownGuard) -> None:
 
     global _last_telegram_candle_ts
     if regime_latest["timestamp"] != _last_telegram_candle_ts:
-        # Track candle change for loop logic; daily Telegram digest is disabled.
         _last_telegram_candle_ts = regime_latest["timestamp"]
+    try:
+        tg.maybe_notify_daily_desk()
+    except Exception:
+        log.exception("Daily Telegram desk digest failed")
 
     signal = None
     try:
@@ -1136,10 +1383,7 @@ def run_iteration(guard: DrawdownGuard) -> None:
         market=market,
         circuit=circuit,
     )
-    try:
-        orbit_exporter.export_state()
-    except Exception:
-        log.exception("Failed to export orbit_state.json")
+    _export_dashboard()
 
 
 def run_bot_loop(stop_event: threading.Event | None = None) -> None:
@@ -1157,10 +1401,7 @@ def run_bot_loop(stop_event: threading.Event | None = None) -> None:
 
     bot_state.set_bot_running(True)
     bot_state.append_operation("START", "Orbit started")
-    try:
-        orbit_exporter.export_state()
-    except Exception:
-        log.exception("Failed to export orbit_state.json on start")
+    _export_dashboard()
 
     if not config.BINANCE_API_KEY or not config.BINANCE_SECRET_KEY:
         log.warning("BINANCE_API_KEY / BINANCE_SECRET_KEY not set.")

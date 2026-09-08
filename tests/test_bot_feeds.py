@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from feeds import normalize_ohlcv
+from shared.feeds import normalize_ohlcv
 from gold_bot.walk_forward import ACCEPTANCE as GOLD_ACCEPTANCE
 from mnq_bot.walk_forward import ACCEPTANCE as MNQ_ACCEPTANCE
 

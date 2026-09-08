@@ -1,4 +1,4 @@
-"""MNQ 15m Opening Range Breakout engine and dashboard state exporter."""
+"""QQQ 15m Opening Range Breakout engine and dashboard state exporter."""
 
 from __future__ import annotations
 
@@ -11,16 +11,19 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from paper.costs import QQQ_COST_BPS, qqq_fill_price, qqq_side_cost
+
 from . import strategy as mnq_strategy
 from .data import fetch_mnq_15m
+from .strategy import SYMBOL
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / "mnq_state.json"
 WF_PATH = ROOT / "backtest_output" / "walk_forward_mnq.json"
 
-BOT_NAME = "Nasdaq 15m ORB"
+BOT_NAME = "QQQ 15m ORB"
 BOT_ID = "mnq"
-ASSET_CLASS = "MNQ Futures"
+ASSET_CLASS = "QQQ ETF"
 
 
 @dataclass
@@ -54,11 +57,14 @@ def _as_ts(value: Any) -> pd.Timestamp:
 def run_backtest(
     frame: pd.DataFrame | None = None,
     *,
-    initial_capital: float = 1_000.0,
-    point_value: float = 2.0,
-    commission_per_contract: float = 0.50,
+    initial_capital: float = 100.0,
+    cost_bps: float = QQQ_COST_BPS,
     rules: mnq_strategy.MnqRules | None = None,
+    # Legacy kwargs ignored (futures → ETF conversion).
+    point_value: float | None = None,
+    commission_per_contract: float | None = None,
 ) -> MnqResult:
+    del point_value, commission_per_contract
     rules = rules or mnq_strategy.MnqRules()
     raw = frame if frame is not None else fetch_mnq_15m()
     data = mnq_strategy.add_indicators(raw, rules)
@@ -70,11 +76,35 @@ def run_backtest(
     current_day: str | None = None
     result = MnqResult(initial_capital=initial_capital, final_equity=initial_capital)
 
+    def apply_cost(qty: float, price: float) -> float:
+        return qqq_side_cost(qty, price, cost_bps=cost_bps)
+
     def mark(price: float) -> float:
         if lot is None:
             return cash
-        pnl = (price - lot.entry) * lot.qty * point_value * (1 if lot.side == "long" else -1)
+        pnl = (price - lot.entry) * lot.qty * (1 if lot.side == "long" else -1)
         return cash + pnl
+
+    def close_lot(exit_px: float, ts: Any, reason: str) -> None:
+        nonlocal cash, lot
+        assert lot is not None
+        fill_side = "sell" if lot.side == "long" else "buy"
+        fill_px = qqq_fill_price(exit_px, fill_side)
+        pnl = (fill_px - lot.entry) * lot.qty * (1 if lot.side == "long" else -1)
+        pnl -= apply_cost(lot.qty, fill_px)
+        cash += pnl
+        result.trades.append({
+            "symbol": SYMBOL,
+            "side": lot.side,
+            "entry_time": str(lot.entry_time),
+            "exit_time": str(ts),
+            "entry_price": lot.entry,
+            "exit_price": fill_px,
+            "quantity": lot.qty,
+            "pnl_usdt": pnl,
+            "reason": reason,
+        })
+        lot = None
 
     cols = list(data.columns)
     for tup in data.itertuples(index=False, name=None):
@@ -87,22 +117,7 @@ def run_backtest(
             or_high = None
             or_low = None
             if lot is not None:
-                px = float(mapping["open"])
-                pnl = (px - lot.entry) * lot.qty * point_value * (1 if lot.side == "long" else -1)
-                pnl -= commission_per_contract * lot.qty
-                cash += pnl
-                result.trades.append({
-                    "symbol": "MNQ",
-                    "side": lot.side,
-                    "entry_time": str(lot.entry_time),
-                    "exit_time": str(ts),
-                    "entry_price": lot.entry,
-                    "exit_price": px,
-                    "quantity": lot.qty,
-                    "pnl_usdt": pnl,
-                    "reason": "session_reset",
-                })
-                lot = None
+                close_lot(float(mapping["open"]), ts, "session_reset")
 
         if mnq_strategy.is_opening_range_bar(mapping, rules):
             bar_high = float(mapping["high"])
@@ -131,23 +146,7 @@ def run_backtest(
             if exit_px is None and mnq_strategy.should_force_flat(mapping, rules):
                 exit_px, reason = close, "eod_flat"
             if exit_px is not None:
-                pnl = (exit_px - lot.entry) * lot.qty * point_value * (
-                    1 if lot.side == "long" else -1
-                )
-                pnl -= commission_per_contract * lot.qty
-                cash += pnl
-                result.trades.append({
-                    "symbol": "MNQ",
-                    "side": lot.side,
-                    "entry_time": str(lot.entry_time),
-                    "exit_time": str(ts),
-                    "entry_price": lot.entry,
-                    "exit_price": exit_px,
-                    "quantity": lot.qty,
-                    "pnl_usdt": pnl,
-                    "reason": reason,
-                })
-                lot = None
+                close_lot(exit_px, ts, reason)
 
         if lot is None:
             signal = mnq_strategy.evaluate_entry(
@@ -158,18 +157,18 @@ def run_backtest(
                 rules=rules,
             )
             if signal is not None:
-                risk_pts = abs(signal.entry - signal.stop)
-                qty, _forced = mnq_strategy.size_contracts(
-                    cash, risk_pts, point_value=point_value
-                )
-                if qty >= 1:
-                    cash -= commission_per_contract * qty
+                qty = mnq_strategy.size_shares(cash, signal.entry, signal.stop, rules=rules)
+                if qty > 0:
+                    fill_side = "buy" if signal.side == "long" else "sell"
+                    fill_px = qqq_fill_price(signal.entry, fill_side)
+                    delta = fill_px - signal.entry
+                    cash -= apply_cost(qty, fill_px)
                     lot = _Lot(
                         side=signal.side,
-                        entry=signal.entry,
-                        stop=signal.stop,
-                        take_profit=signal.take_profit,
-                        qty=qty,
+                        entry=fill_px,
+                        stop=signal.stop + delta,
+                        take_profit=signal.take_profit + delta,
+                        qty=float(qty),
                         entry_time=ts,
                     )
                     trades_today += 1
@@ -178,22 +177,9 @@ def run_backtest(
 
     if lot is not None:
         last = data.iloc[-1]
-        px = float(last["close"])
-        pnl = (px - lot.entry) * lot.qty * point_value * (1 if lot.side == "long" else -1)
-        pnl -= commission_per_contract * lot.qty
-        cash += pnl
-        result.trades.append({
-            "symbol": "MNQ",
-            "side": lot.side,
-            "entry_time": str(lot.entry_time),
-            "exit_time": str(last["timestamp"]),
-            "entry_price": lot.entry,
-            "exit_price": px,
-            "quantity": lot.qty,
-            "pnl_usdt": pnl,
-            "reason": "end_of_test",
-        })
-        result.equity_curve[-1]["equity"] = cash
+        close_lot(float(last["close"]), last["timestamp"], "end_of_test")
+        if result.equity_curve:
+            result.equity_curve[-1]["equity"] = cash
 
     result.final_equity = cash
     return result
@@ -296,14 +282,14 @@ def export_state(
         "equity_curve": result.equity_curve[-500:],
         "recent_trades": result.trades[-20:][::-1],
         "accepted": bool(headline["accepted"]) if headline else metrics["total_return_pct"] > 0 and metrics["sharpe_ratio"] > 0,
-        "data_source": "Yahoo Finance MNQ=F 15m",
+        "data_source": "Yahoo Finance QQQ 15m",
         "logs": [
             {
                 "time": datetime.now(timezone.utc).isoformat(),
                 "level": "INFO",
                 "message": (
-                    f"MNQ ORB exported {metrics['trade_count']} trades "
-                    f"from real MNQ=F 15m data"
+                    f"QQQ ORB exported {metrics['trade_count']} trades "
+                    f"from real QQQ 15m data"
                 ),
             }
         ],

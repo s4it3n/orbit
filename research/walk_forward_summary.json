@@ -1,6 +1,6 @@
 {
   "updated_at": "2026-08-26T13:09:06.066870+00:00",
-  "capital_per_bot": 1000,
+  "capital_per_bot": 100,
   "bots": {
     "orbit": {
       "bot_id": "orbit",
@@ -34,7 +34,7 @@
     },
     "mnq": {
       "bot_id": "mnq",
-      "bot_name": "Nasdaq 15m ORB",
+      "bot_name": "QQQ 15m ORB",
       "timeframe": "15m",
       "accepted": true,
       "gates_passed": 5,

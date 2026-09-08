@@ -1,4 +1,4 @@
-"""Micro E-mini Nasdaq-100 (MNQ) 15m Opening Range Breakout."""
+"""QQQ (Nasdaq-100 ETF) 15m Opening Range Breakout — short-term day desk."""
 
 from __future__ import annotations
 
@@ -10,9 +10,14 @@ import pandas as pd
 
 CET = ZoneInfo("Europe/Berlin")
 
+# Display / trade symbol (Yahoo feed is QQQ).
+SYMBOL = "QQQ"
+
 
 @dataclass(frozen=True)
 class MnqRules:
+    """Session ORB rules. Price knobs are in QQQ dollars (not MNQ index points)."""
+
     or_hour_cet: int = 15
     or_minute_cet: int = 30
     or_duration_minutes: int = 15
@@ -22,23 +27,30 @@ class MnqRules:
     entry_end_minute_cet: int = 0
     eod_hour_cet: int = 21
     eod_minute_cet: int = 0
-    breakout_points: float = 2.0
+    # ~$0.05–$0.15 buffer on QQQ (~ETF dollars), optionally floored by ATR.
+    breakout_points: float = 0.08
+    breakout_atr_mult: float = 0.05
     volume_sma_period: int = 20
     volume_mult: float = 1.25
     reward_risk: float = 2.0
+    risk_pct: float = 0.005
+    max_risk_pct: float = 0.10
     max_trades_per_day: int = 1
     atr_period: int = 14
     or_min_atr_mult: float = 0.15
     or_max_atr_mult: float = 5.0
-    min_or_points: float = 8.0
-    max_or_points: float = 250.0
+    # Typical 15m OR width on QQQ is cents to a few dollars.
+    min_or_points: float = 0.20
+    max_or_points: float = 8.0
     trend_sma_period: int = 0
     long_only: bool = False
     require_close_break: bool = True
     use_vwap: bool = False
     session_bias: bool = False
-    # Cap stop distance so a $1k paper account can take 1 MNQ without risking $200+.
-    max_stop_points: float = 40.0
+    # Cap stop distance in QQQ dollars so $100 books can still size a trade.
+    max_stop_points: float = 2.5
+    # Skip tiny notionals (broker realism for fractional shares).
+    min_notional: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -120,6 +132,13 @@ def _is_eod(row: object, rules: MnqRules) -> bool:
     return minutes >= eod
 
 
+def _breakout_buffer(rules: MnqRules, atr: float) -> float:
+    fixed = float(rules.breakout_points)
+    if rules.breakout_atr_mult > 0 and np.isfinite(atr) and atr > 0:
+        return max(fixed, float(rules.breakout_atr_mult) * atr)
+    return fixed
+
+
 def evaluate_entry(
     row: object,
     *,
@@ -141,7 +160,6 @@ def evaluate_entry(
         volume_sma = _field(row, "volume_sma")
         if volume_sma is None or pd.isna(volume_sma):
             return None
-        # Require bar volume >= volume_mult × SMA(volume); default 1.25×.
         if float(_field(row, "volume")) < float(volume_sma) * rules.volume_mult:
             return None
     or_width = float(or_high) - float(or_low)
@@ -163,10 +181,21 @@ def evaluate_entry(
             return None
     prev_close = _field(row, "prev_session_close")
     mid = (or_high + or_low) / 2.0
-    long_trigger = or_high + rules.breakout_points
-    short_trigger = or_low - rules.breakout_points
+    buffer = _breakout_buffer(rules, atr)
+    long_trigger = or_high + buffer
+    short_trigger = or_low - buffer
+    high_raw = _field(row, "high")
+    low_raw = _field(row, "low")
+    high = float(high_raw) if high_raw is not None and pd.notna(high_raw) else close
+    low = float(low_raw) if low_raw is not None and pd.notna(low_raw) else close
+    if rules.require_close_break:
+        long_break = close > long_trigger
+        short_break = close < short_trigger
+    else:
+        long_break = high > long_trigger
+        short_break = low < short_trigger
     trend = _field(row, "trend_sma")
-    if close > long_trigger:
+    if long_break:
         if rules.use_vwap and close < float(vwap):
             return None
         if rules.session_bias and prev_close is not None and pd.notna(prev_close) and close < float(prev_close):
@@ -188,7 +217,7 @@ def evaluate_entry(
             or_high,
             or_low,
         )
-    if close < short_trigger:
+    if short_break:
         if rules.long_only:
             return None
         if rules.use_vwap and close > float(vwap):
@@ -225,28 +254,52 @@ def is_opening_range_bar(row: pd.Series, rules: MnqRules | None = None) -> bool:
     return _is_or_candle(row, rules)
 
 
+def size_shares(
+    cash: float,
+    entry: float,
+    stop: float,
+    *,
+    rules: MnqRules | None = None,
+) -> float:
+    """Fractional QQQ shares sized by dollar risk (retail ETF realism)."""
+    rules = rules or MnqRules()
+    risk_per_share = abs(float(entry) - float(stop))
+    if cash <= 0 or risk_per_share <= 0 or entry <= 0:
+        return 0.0
+    qty = (cash * rules.risk_pct) / risk_per_share
+    max_by_risk = (cash * rules.max_risk_pct) / risk_per_share
+    qty = min(qty, max_by_risk, cash / entry)
+    if qty * entry < float(rules.min_notional):
+        return 0.0
+    return float(qty)
+
+
 def size_contracts(
     cash: float,
     risk_pts: float,
     *,
-    point_value: float = 2.0,
-    risk_frac: float = 0.005,
-    max_risk_frac: float = 0.10,
-    min_cash_for_one: float = 400.0,
-) -> tuple[int, bool]:
-    """MNQ contract count from cash risk.
+    rules: MnqRules | None = None,
+    point_value: float = 1.0,
+    risk_frac: float | None = None,
+    max_risk_frac: float | None = None,
+    min_cash_for_one: float | None = None,
+    min_margin: float | None = None,
+    entry: float | None = None,
+) -> tuple[float, bool]:
+    """Back-compat wrapper → fractional ``size_shares``.
 
-    On small paper accounts (~$1k), a strict 0.5% risk budget often yields qty=0
-    because one MNQ point is $2. Allow a single contract when cash is at least
-    ``min_cash_for_one`` and 1-lot dollar risk is within ``max_risk_frac`` of cash
-    (default 10% — realistic for micro futures on a tiny account).
+    ``risk_pts`` is the stop distance in QQQ dollars. ``forced`` is always False
+    (no whole-lot rounding).
     """
-    if cash <= 0 or risk_pts <= 0 or point_value <= 0:
-        return 0, False
-    risk_per_contract = risk_pts * point_value
-    qty = int((cash * risk_frac) / risk_per_contract)
-    forced = False
-    if qty < 1 and cash >= min_cash_for_one and risk_per_contract <= cash * max_risk_frac:
-        qty = 1
-        forced = True
-    return max(qty, 0), forced
+    from dataclasses import replace
+
+    del point_value, min_cash_for_one, min_margin
+    rules = rules or MnqRules()
+    if risk_frac is not None:
+        rules = replace(rules, risk_pct=float(risk_frac))
+    if max_risk_frac is not None:
+        rules = replace(rules, max_risk_pct=float(max_risk_frac))
+    px = float(entry) if entry and entry > 0 else max(float(risk_pts) * 50.0, 100.0)
+    stop = px - abs(float(risk_pts))
+    qty = size_shares(cash, px, stop, rules=rules)
+    return qty, False

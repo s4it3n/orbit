@@ -26,6 +26,8 @@ header.top{display:flex;align-items:center;justify-content:space-between;gap:14p
 .brand .sub{color:var(--muted);font-size:.8rem;margin-top:2px}
 .brand a.back{color:var(--muted);font-size:.78rem;text-decoration:none;margin-right:4px}
 .brand a.back:hover{color:var(--text)}
+a.signout{color:var(--muted);font-size:.78rem;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+a.signout:hover{color:var(--text)}
 .top-right{display:flex;align-items:center;gap:12px}
 #utcClock{font-family:var(--mono);font-size:.82rem;color:var(--muted)}
 .badge{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;font-size:.78rem;font-weight:600;border:1px solid transparent}
@@ -84,6 +86,10 @@ tr.rank-row{cursor:pointer}tr.rank-row.active td{background:#5b9fd418}
 .rb.off{background:#e05a5a18;color:var(--red);border-color:#e05a5a44}
 .rb.unk{background:#d4a24c18;color:var(--amber);border-color:#d4a24c44}
 .scroll{max-height:300px;overflow:auto}
+.mk{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.mi{background:#0e1117;border:1px solid var(--border);border-radius:8px;padding:9px 10px}
+.mi .l{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.mi .v{font-family:var(--mono);font-size:.84rem;margin-top:4px}
 .sec{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:14px 0 8px}
 .sec:first-child{margin-top:0}
 label.fl{display:block;font-size:.76rem;color:var(--muted);margin:0 0 5px;font-weight:500}
@@ -141,7 +147,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
   <div class="top-right">
     <span id="utcClock">--:--:--</span>
     <span class="badge stop" id="statusBadge"><span class="dot"></span>Stopped</span>
-    <a href="/logout" style="color:var(--muted);font-size:.78rem;font-weight:600">Sign out</a>
+    <a class="signout" href="/logout">Sign out</a>
   </div>
 </header>
 
@@ -150,12 +156,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
 <div class="controls">
   <button class="btn btn-primary" id="btnStart" onclick="apiStart()">Start</button>
   <button class="btn btn-danger" id="btnStop" onclick="apiStop()" disabled>Stop</button>
+  <button class="btn btn-ghost" id="btnFlatten" onclick="apiFlatten()" type="button">Flatten</button>
 </div>
 
 <div class="kpis">
-  <div class="kpi"><div class="kpi-l">Equity</div><div class="kpi-v" id="vBalance">—</div></div>
+  <div class="kpi"><div class="kpi-l">Cash (idle)</div><div class="kpi-v" id="vCash">—</div><div class="kpi-h">USDT not spent on fills</div></div>
+  <div class="kpi"><div class="kpi-l">Equity (total)</div><div class="kpi-v" id="vBalance">—</div><div class="kpi-h" id="vOpenPnl">Open PnL —</div></div>
   <div class="kpi"><div class="kpi-l">Held</div><div class="kpi-v" id="vHeld">—</div><div class="kpi-h" id="vPrice">Mark: —</div></div>
-  <div class="kpi"><div class="kpi-l">Regime</div><div class="kpi-v" id="vRegime">—</div><div class="kpi-h" id="vRegimeDetail">—</div></div>
   <div class="kpi"><div class="kpi-l">Drawdown</div><div class="kpi-v" id="vDD">0.00%</div><div class="kpi-h" id="vDDLimit">Limit: —</div></div>
 </div>
 
@@ -186,10 +193,19 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
   </div>
   <div class="panel">
     <div class="ph">
-      <div class="pt">Rankings</div>
+      <div class="pt">Market</div>
       <span class="rb unk" id="regimeBadge">Regime —</span>
     </div>
-    <div class="scroll">
+    <div class="pb" style="padding-bottom:0">
+      <div class="mk">
+        <div class="mi"><div class="l">Mark</div><div class="v" id="mClose">—</div></div>
+        <div class="mi"><div class="l">Trend EMA</div><div class="v" id="mTrend">—</div></div>
+        <div class="mi"><div class="l">Top ranked</div><div class="v" id="mTop">—</div></div>
+        <div class="mi"><div class="l">BTC RSI</div><div class="v" id="mRsi">—</div></div>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);font-family:var(--mono);margin-bottom:8px" id="mBarTime">Last candle —</div>
+    </div>
+    <div class="scroll" style="border-top:1px solid var(--border)">
       <table>
         <thead><tr><th>Rank</th><th>Symbol</th><th>Score</th><th>Mom%</th><th>Vol%</th><th>Status</th></tr></thead>
         <tbody id="rankingsTable"><tr><td class="empty" colspan="6">No rankings yet</td></tr></tbody>
@@ -207,11 +223,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
     <div class="pb"><div class="term" id="terminal"><div class="te">Waiting for output…</div></div></div>
   </div>
   <div class="panel">
-    <div class="ph"><div class="pt">Operations</div></div>
+    <div class="ph"><div class="pt">Recent trades</div></div>
     <div class="scroll">
       <table>
-        <thead><tr><th>Time (UTC)</th><th>Type</th><th>Detail</th></tr></thead>
-        <tbody id="opsTable"><tr><td class="empty" colspan="3">No operations yet</td></tr></tbody>
+        <thead><tr><th>When</th><th>Side</th><th>PnL</th></tr></thead>
+        <tbody id="tradesTable"><tr><td class="empty" colspan="3">No trades yet</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -244,7 +260,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
         <div><label class="fl">Volatility period</label><input type="number" id="volatility_period" min="5" max="120"></div>
         <div><label class="fl">Volume lookback</label><input type="number" id="volume_lookback" min="5" max="120"></div>
         <div><label class="fl">ATR period</label><input type="number" id="atr_period" min="2" max="100"></div>
-        <div><label class="fl">Max positions</label><input type="number" id="max_positions" min="1" max="10"></div>
+        <div>
+          <label class="fl">Max concurrent positions</label>
+          <input type="number" id="max_positions" min="1" max="10">
+          <div class="kpi-h" style="margin-top:4px">Coins held at once · 1 recommended</div>
+        </div>
         <div><label class="fl">Rank buffer</label><input type="number" id="rank_buffer" min="1" max="10"></div>
         <div><label class="fl">Min hold days</label><input type="number" id="min_hold_days" min="0" max="60"></div>
         <div><label class="fl">Cooldown days</label><input type="number" id="cooldown_days" min="0" max="30"></div>
@@ -395,6 +415,31 @@ async function apiStart() {
 async function apiStop() {
   hideAlert();
   try { await apiCall('/api/bot/stop'); toast('Bot stopped'); refresh(); } catch (e) { toast(e.message, false); }
+}
+async function apiFlatten() {
+  hideAlert();
+  const password = window.prompt(
+    'Flatten crypto: sell open lots on testnet and pause so the bot does not reopen.\n\nEnter your dashboard password to confirm.'
+  );
+  if (password == null) return;
+  $('btnFlatten').disabled = true;
+  try {
+    const res = await fetch('/api/bots/orbit/flatten', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.message || 'Flatten failed');
+    toast(data.message || 'Flattened and paused');
+    if (data.message) alert(data.message + '\nBot paused — press Start to resume.');
+    refresh();
+  } catch (e) {
+    showAlert(e.message);
+    toast(e.message, false);
+  } finally {
+    $('btnFlatten').disabled = false;
+  }
 }
 
 function rankingCaption(row) {
@@ -646,6 +691,7 @@ async function refresh() {
 
     $('subtitle').textContent =
       universeSize + ' symbols · ' + (settings.timeframe || '?') +
+      ' · up to ' + (settings.max_positions || 1) + ' position' + ((settings.max_positions || 1) > 1 ? 's' : '') +
       (s.last_processed_candle_ts
         ? ' · Last candle ' + formatUtc(s.last_processed_candle_ts)
         : (s.last_updated ? ' · Updated ' + formatUtc(s.last_updated) : ''));
@@ -653,8 +699,17 @@ async function refresh() {
     if (s.last_error) showAlert('Bot error: ' + s.last_error);
 
     const equity = s.equity_usdt != null ? s.equity_usdt : s.balance_usdt;
+    const cash = s.cash_usdt != null ? s.cash_usdt : (s.balance_usdt != null ? s.balance_usdt : equity);
+    $('vCash').textContent =
+      cash != null ? Number(cash).toFixed(2) + ' USDT' : (running ? 'Loading…' : '—');
     $('vBalance').textContent =
       equity != null ? Number(equity).toFixed(2) + ' USDT' : (running ? 'Loading…' : '—');
+    const openPnl = s.open_pnl_usdt != null
+      ? Number(s.open_pnl_usdt)
+      : (equity != null && cash != null ? Number(equity) - Number(cash) : 0);
+    $('vOpenPnl').textContent = Math.abs(openPnl) > 0.005
+      ? 'Open PnL ' + (openPnl > 0 ? '+' : '') + openPnl.toFixed(2) + ' USDT'
+      : 'No open trades';
 
     const m = s.market || {};
     const pos = s.position || {};
@@ -668,21 +723,32 @@ async function refresh() {
     const mark = m.close != null ? Number(m.close) : null;
 
     $('vHeld').textContent = heldSymbols.length ? heldSymbols.join(', ') : 'Cash';
-    $('vPrice').textContent = mark != null ? 'Mark: ' + formatPrice(mark) : 'Mark: —';
+    const maxSlots = Number(settings.max_positions || DEFAULTS.max_positions || 1);
+    const slotLine = heldSymbols.length
+      ? heldSymbols.length + '/' + maxSlots + ' slots'
+      : '0/' + maxSlots + ' slots';
+    $('vPrice').textContent = mark != null
+      ? 'Mark: ' + formatPrice(mark) + ' · ' + slotLine
+      : slotLine;
 
     const regimeEl = $('vRegime');
-    if (regime.market_shock) { regimeEl.textContent = 'SHOCK'; regimeEl.style.color = 'var(--red)'; }
-    else if (regime.heat_active) { regimeEl.textContent = 'HEAT'; regimeEl.style.color = 'var(--amber)'; }
-    else if (regime.blowoff) { regimeEl.textContent = 'BLOW-OFF'; regimeEl.style.color = 'var(--amber)'; }
-    else if (regime.risk_on === true) { regimeEl.textContent = 'RISK-ON'; regimeEl.style.color = 'var(--green)'; }
-    else if (regime.risk_on === false) { regimeEl.textContent = 'RISK-OFF'; regimeEl.style.color = 'var(--red)'; }
-    else { regimeEl.textContent = '—'; regimeEl.style.color = 'var(--text)'; }
+    if (regimeEl) {
+      if (regime.market_shock) { regimeEl.textContent = 'SHOCK'; regimeEl.style.color = 'var(--red)'; }
+      else if (regime.heat_active) { regimeEl.textContent = 'HEAT'; regimeEl.style.color = 'var(--amber)'; }
+      else if (regime.blowoff) { regimeEl.textContent = 'BLOW-OFF'; regimeEl.style.color = 'var(--amber)'; }
+      else if (regime.risk_on === true) { regimeEl.textContent = 'RISK-ON'; regimeEl.style.color = 'var(--green)'; }
+      else if (regime.risk_on === false) { regimeEl.textContent = 'RISK-OFF'; regimeEl.style.color = 'var(--red)'; }
+      else { regimeEl.textContent = '—'; regimeEl.style.color = 'var(--text)'; }
+    }
     const flags = [];
     if (regime.heat_active) flags.push('peak DD ' + Number(regime.heat_drawdown_pct || 0).toFixed(1) + '%');
     if (regime.market_shock) flags.push('BTC 5d ' + (regime.btc_5d_return == null ? 'shock' : Number(regime.btc_5d_return).toFixed(1) + '%'));
     if (regime.blowoff) flags.push('overbought');
     const baseReason = regime.reason || (regime.symbol ? regime.symbol + ' regime' : '—');
-    $('vRegimeDetail').textContent = flags.length ? baseReason + ' · ' + flags.join(' · ') : baseReason;
+    const regimeDetail = $('vRegimeDetail');
+    if (regimeDetail) {
+      regimeDetail.textContent = flags.length ? baseReason + ' · ' + flags.join(' · ') : baseReason;
+    }
     updateRegimeBadge(regime);
 
     $('vDD').textContent = formatPct(s.daily_drawdown_pct || 0);
@@ -717,13 +783,26 @@ async function refresh() {
     }
 
     const ops = s.operations || [];
-    $('opsTable').innerHTML = ops.length
-      ? ops.slice(0, 25).map(o =>
-          '<tr><td class="tc">' + formatUtc(o.time) +
-          '</td><td><span class="op op-' + o.type + '">' + o.type +
-          '</span></td><td>' + o.detail + '</td></tr>'
-        ).join('')
-      : '<tr><td class="empty" colspan="3">No operations yet</td></tr>';
+    const tradeOps = ops.filter(o => o && (o.type === 'ENTRY' || o.type === 'EXIT' || o.type === 'TAKE_PROFIT'));
+    $('tradesTable').innerHTML = tradeOps.length
+      ? tradeOps.slice(0, 25).map(o => {
+          const when = formatUtc(o.time);
+          const side = o.type === 'ENTRY' ? 'long' : (o.type === 'TAKE_PROFIT' ? 'tp' : 'exit');
+          const pnl = o.pnl_usdt == null ? '—' : Number(o.pnl_usdt).toFixed(2);
+          const cls = o.pnl_usdt == null ? '' : (Number(o.pnl_usdt) >= 0 ? 'pos' : 'neg');
+          return '<tr><td class="tc">' + when + '</td><td>' + side + '</td><td class="' + cls + '">' + pnl + '</td></tr>';
+        }).join('')
+      : '<tr><td class="empty" colspan="3">No trades yet</td></tr>';
+
+    const mkt = s.market || {};
+    const reg = s.regime || {};
+    $('mClose').textContent = mkt.close != null ? formatPrice(Number(mkt.close)) : '—';
+    $('mTrend').textContent = mkt.trend_ema != null ? formatPrice(Number(mkt.trend_ema)) : '—';
+    $('mTop').textContent = mkt.top_symbol || '—';
+    $('mRsi').textContent = reg.rsi != null ? Number(reg.rsi).toFixed(1) : '—';
+    $('mBarTime').textContent = mkt.candle_time
+      ? 'Last candle ' + formatUtc(mkt.candle_time)
+      : (s.last_processed_candle_ts ? 'Last candle ' + formatUtc(s.last_processed_candle_ts) : 'Last candle —');
 
     if (!logsSeeded && s.logs && s.logs.length) {
       s.logs.forEach(addTerm);
@@ -758,12 +837,15 @@ async function loadRankings() {
     if (d.regime) {
       updateRegimeBadge(d.regime);
       const regimeEl = $('vRegime');
-      if (d.regime.market_shock) { regimeEl.textContent = 'SHOCK'; regimeEl.style.color = 'var(--red)'; }
-      else if (d.regime.heat_active) { regimeEl.textContent = 'HEAT'; regimeEl.style.color = 'var(--amber)'; }
-      else if (d.regime.blowoff) { regimeEl.textContent = 'BLOW-OFF'; regimeEl.style.color = 'var(--amber)'; }
-      else if (d.regime.risk_on === true) { regimeEl.textContent = 'RISK-ON'; regimeEl.style.color = 'var(--green)'; }
-      else if (d.regime.risk_on === false) { regimeEl.textContent = 'RISK-OFF'; regimeEl.style.color = 'var(--red)'; }
-      if (d.regime.reason) $('vRegimeDetail').textContent = d.regime.reason;
+      if (regimeEl) {
+        if (d.regime.market_shock) { regimeEl.textContent = 'SHOCK'; regimeEl.style.color = 'var(--red)'; }
+        else if (d.regime.heat_active) { regimeEl.textContent = 'HEAT'; regimeEl.style.color = 'var(--amber)'; }
+        else if (d.regime.blowoff) { regimeEl.textContent = 'BLOW-OFF'; regimeEl.style.color = 'var(--amber)'; }
+        else if (d.regime.risk_on === true) { regimeEl.textContent = 'RISK-ON'; regimeEl.style.color = 'var(--green)'; }
+        else if (d.regime.risk_on === false) { regimeEl.textContent = 'RISK-OFF'; regimeEl.style.color = 'var(--red)'; }
+      }
+      const regimeDetail = $('vRegimeDetail');
+      if (regimeDetail && d.regime.reason) regimeDetail.textContent = d.regime.reason;
     }
   } catch (e) {}
 }

@@ -85,6 +85,14 @@ def _to_fill(order: dict[str, Any], fallback_price: float) -> FillResult:
     fee_data = order.get("fee") or {}
     quantity = float(order.get("filled") or order.get("amount") or 0.0)
     average = float(order.get("average") or order.get("price") or fallback_price)
+    fee_cost = float(fee_data.get("cost") or 0.0)
+    # Sum multi-fee arrays when present (some venues return fees[]).
+    fees = order.get("fees") or []
+    if isinstance(fees, list) and fees:
+        fee_cost = max(
+            fee_cost,
+            sum(float(row.get("cost") or 0.0) for row in fees if isinstance(row, dict)),
+        )
     return FillResult(
         order_id=str(order.get("id") or ""),
         status=str(order.get("status") or "unknown"),
@@ -92,7 +100,7 @@ def _to_fill(order: dict[str, Any], fallback_price: float) -> FillResult:
         quantity=quantity,
         average_price=average,
         cost=float(order.get("cost") or quantity * average),
-        fee=float(fee_data.get("cost") or 0.0),
+        fee=fee_cost,
         raw=order,
     )
 

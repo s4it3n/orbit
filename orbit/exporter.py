@@ -71,12 +71,17 @@ def _recent_trades(live: dict[str, Any], limit: int = 20) -> list[dict[str, Any]
     for op in live.get("operations") or []:
         if op.get("type") not in {"ENTRY", "EXIT", "TAKE_PROFIT"}:
             continue
+        op_type = str(op.get("type"))
+        side = "long" if op_type == "ENTRY" else ("tp" if op_type == "TAKE_PROFIT" else "exit")
         rows.append({
             "time": op.get("time"),
-            "type": op.get("type"),
+            "type": op_type,
+            "side": side,
             "detail": op.get("detail"),
             "symbol": op.get("symbol"),
             "pnl_usdt": op.get("pnl_usdt"),
+            "entry_time": op.get("time") if op_type == "ENTRY" else None,
+            "exit_time": op.get("time") if op_type != "ENTRY" else None,
         })
         if len(rows) >= limit:
             break
@@ -111,6 +116,12 @@ def build_export_payload(live: dict[str, Any] | None = None) -> dict[str, Any]:
     if equity is not None:
         equity = float(equity)
     live_return = _live_return_pct({**live, "equity_usdt": equity} if equity is not None else live)
+    cash = live.get("cash_usdt")
+    if cash is None and equity is not None:
+        cash = equity
+    open_pnl = live.get("open_pnl_usdt")
+    if open_pnl is None:
+        open_pnl = 0.0
     return {
         "bot_id": BOT_ID,
         "bot_name": BOT_NAME,
@@ -125,7 +136,9 @@ def build_export_payload(live: dict[str, Any] | None = None) -> dict[str, Any]:
         "profit_factor": None,
         "trade_count": _live_trade_count(live),
         "current_position": _position_payload(live),
+        "cash_usdt": float(cash) if cash is not None else None,
         "equity_usdt": equity,
+        "open_pnl_usdt": float(open_pnl),
         "paper_equity_cap": float(live.get("paper_equity_cap") or config.ORBIT_PAPER_EQUITY),
         "equity_curve": _equity_curve_from_ops({**live, "equity_usdt": equity}),
         "recent_trades": _recent_trades(live),

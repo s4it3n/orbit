@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from feeds import fetch_first_available
+from shared.feeds import fetch_first_available
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / "data_cache"

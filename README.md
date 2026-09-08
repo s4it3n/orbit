@@ -1,56 +1,58 @@
 # Orbit
 
-Multi-bot paper trading desk. Production UI is the FastAPI app in `webapp/` (not a separate frontend).
+Multi-bot paper trading desk. Production UI is FastAPI in `webapp/`.
 
-| Module | Path | Role |
-|---|---|---|
-| Orbit | `orbit/` | ACCEPTED 1D crypto momentum (Binance **spot testnet**) |
-| Gold | `gold_bot/` | XAU/USD 1H breakout |
-| MNQ | `mnq_bot/` | Micro Nasdaq 15m ORB |
-| Dashboard | `webapp/` | Password-gated control panel on `:8080` |
-| Backtests | `backtest/` | Shared engine + walk-forward helpers |
+**Learn the system:** [docs/HOW_ORBIT_WORKS.md](docs/HOW_ORBIT_WORKS.md)
 
-## Secrets (important)
+## Layout
 
-API keys live **only** in a local `.env` file (see `.env.example`). That file is gitignored and must never be committed.
+| Path | Role |
+|---|---|
+| `orbit/` | Crypto 1D momentum (Binance spot **testnet**) |
+| `gold_bot/` | Gold 1H breakout (Yahoo paper) |
+| `mnq_bot/` | QQQ 15m ORB (Yahoo paper; legacy folder name) |
+| `paper/` | Shared paper account, fees, flatten, loops |
+| `shared/` | Cross-bot utilities (Yahoo feeds) |
+| `webapp/` | Password-gated dashboard on `:8080` |
+| `backtest/` | Crypto backtest + walk-forward engine |
+| `scripts/` | CLI tools (walk-forwards, resets, seeds) |
+| `docs/` | Guides |
+| `deploy/` | Oracle Cloud / systemd |
+| `research/` | Walk-forward summary for the UI |
+| `run.py` | Start the platform |
+
+## Secrets
 
 ```bash
 cp .env.example .env
-# edit .env with Binance testnet + Telegram values
+# Binance testnet keys from https://testnet.binance.vision/ only
 ```
 
-If this repo is public, treat any key that was ever pasted into chat, issues, or commits as compromised and **rotate** it.
+Never commit `.env`.
 
 ## Local run
 
 ```bash
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
+# activate venv
 pip install -r requirements.txt
-cp .env.example .env   # then fill keys
+cp .env.example .env
 python run.py
 ```
 
-Open http://127.0.0.1:8080 — password from `ORBIT_DASHBOARD_PASSWORD` (default `1234`).
+Open http://127.0.0.1:8080 — password `ORBIT_DASHBOARD_PASSWORD` (default `1234`).
 
-With `ORBIT_AUTOSTART=1` (cloud default), all three paper bots start:
-- **Orbit crypto** → Binance spot testnet
-- **Gold** → local test money marked to Yahoo `GC=F` 1h
-- **MNQ** → local test money marked to Yahoo MNQ/NQ/QQQ 15m
+With `ORBIT_AUTOSTART=1` (cloud default), crypto + gold + QQQ start enabled.
 
-## Walk-forward / backtests (local machine only)
-
-Do **not** run these on the 1 GB Always Free VM.
+## Research CLIs (local machine — not the tiny VM)
 
 ```bash
-python run_walk_forward.py
-python run_walk_forward_gold.py
-python run_walk_forward_mnq.py
+python scripts/run_walk_forward.py
+python scripts/run_walk_forward_gold.py
+python scripts/run_walk_forward_mnq.py
+python scripts/build_walk_forward_summary.py
 ```
 
-## Oracle Cloud (24/7)
+## Oracle Cloud
 
-See [deploy/README.md](deploy/README.md).
-
-Public site: `http://YOUR_VM_IP:8080`
+See [deploy/README.md](deploy/README.md). Public site: `http://YOUR_VM_IP:8080`

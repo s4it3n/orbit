@@ -8,13 +8,42 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from gold_bot import live as gold_live
+from gold_bot import settings as gold_settings_module
 from gold_bot import strategy as gold_strategy
 from mnq_bot import live as mnq_live
 from mnq_bot import strategy as mnq_strategy
 from orbit import exporter as orbit_exporter
 from paper import loops
+from paper import equity_snapshot, metrics_from_account
+
+
+def test_equity_snapshot_flat_vs_open():
+    flat = {"initial_capital": 100.0, "cash": 105.0, "position": None, "equity_curve": [{"equity": 105.0}]}
+    snap = equity_snapshot(flat)
+    assert snap["cash_usdt"] == 105.0
+    assert snap["equity_usdt"] == 105.0
+    assert snap["open_pnl_usdt"] == 0.0
+
+    # CFD-style: cash ledger 98, marked equity 103.5 → unrealized +5.5
+    # Long qty 0.1 @ entry 100 → mark = 100 + 5.5/0.1 = 155; invested = 15.5
+    open_book = {
+        "initial_capital": 100.0,
+        "cash": 98.0,
+        "position": {"side": "long", "qty": 0.1, "entry": 100.0},
+        "equity_curve": [{"equity": 103.5}],
+    }
+    snap_open = equity_snapshot(open_book)
+    assert snap_open["equity_usdt"] == 103.5
+    assert snap_open["open_pnl_usdt"] == pytest.approx(5.5)
+    assert snap_open["cash_usdt"] == pytest.approx(88.0)  # 103.5 - 15.5 invested
+
+    metrics = metrics_from_account(open_book)
+    assert metrics["cash_usdt"] == snap_open["cash_usdt"]
+    assert metrics["equity_usdt"] == 103.5
+    assert metrics["open_pnl_usdt"] == pytest.approx(5.5)
 
 
 def _gold_frame(bars: int = 220) -> pd.DataFrame:
@@ -56,6 +85,11 @@ def test_gold_live_iteration_writes_state(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(gold_live, "ACCOUNT_PATH", tmp_path / "gold_live.json")
     monkeypatch.setattr(gold_live, "STATE_PATH", tmp_path / "gold_state.json")
     monkeypatch.setattr(gold_live, "fetch_gold_hourly", lambda force=False: _gold_frame())
+    monkeypatch.setattr(
+        gold_live.gold_settings,
+        "load_settings",
+        lambda: {**gold_settings_module.DEFAULT_SETTINGS, "bot_enabled": True},
+    )
     payload = gold_live.run_iteration(force_refresh=False)
     assert payload["bot_id"] == "gold"
     assert payload["mode"] == "paper_live"
@@ -65,13 +99,20 @@ def test_gold_live_iteration_writes_state(tmp_path: Path, monkeypatch):
     assert account["last_processed_bar_ts"]
     assert account["equity_curve"]
     assert float(account["initial_capital"]) == gold_live.INITIAL_CAPITAL
-    assert gold_live.INITIAL_CAPITAL == 1000.0
+    assert gold_live.INITIAL_CAPITAL == 100.0
 
 
 def test_mnq_live_iteration_writes_state(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(mnq_live, "ACCOUNT_PATH", tmp_path / "mnq_live.json")
     monkeypatch.setattr(mnq_live, "STATE_PATH", tmp_path / "mnq_state.json")
     monkeypatch.setattr(mnq_live, "fetch_mnq_15m", lambda force=False: _mnq_frame())
+    from mnq_bot import settings as mnq_settings_module
+
+    monkeypatch.setattr(
+        mnq_live.mnq_settings,
+        "load_settings",
+        lambda: {**mnq_settings_module.DEFAULT_SETTINGS, "bot_enabled": True},
+    )
     payload = mnq_live.run_iteration(force_refresh=False)
     assert payload["bot_id"] == "mnq"
     assert payload["mode"] == "paper_live"
@@ -101,7 +142,7 @@ def test_paper_loops_start_stop():
 
 def test_gold_process_can_open_from_signal():
     account = {
-        "cash": 1000.0,
+        "cash": 100.0,
         "position": None,
         "trades": [],
         "equity_curve": [],
@@ -128,86 +169,82 @@ def test_gold_process_can_open_from_signal():
     assert account["position"]["side"] == "long"
 
 
-def test_gold_resets_stale_100k_account(tmp_path: Path, monkeypatch):
+def test_gold_scales_stale_large_account(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(gold_live, "ACCOUNT_PATH", tmp_path / "gold_live.json")
     path = tmp_path / "gold_live.json"
     path.write_text(
         json.dumps({
             "bot_id": "gold",
-            "initial_capital": 100_000.0,
-            "cash": 99_000.0,
-            "trades": [{"pnl_usdt": 1.0}],
-            "position": {"side": "long"},
-            "equity_curve": [{"timestamp": "x", "equity": 100_000}],
+            "initial_capital": 1000.0,
+            "cash": 990.0,
+            "trades": [{"pnl_usdt": 10.0, "quantity": 0.5}],
+            "position": {"side": "long", "qty": 0.4},
+            "equity_curve": [{"timestamp": "x", "equity": 1010.0}],
             "logs": [],
         }),
         encoding="utf-8",
     )
     account = gold_live._load()
-    assert account["initial_capital"] == 1000.0
-    assert account["cash"] == 1000.0
-    assert account["trades"] == []
-    assert account["position"] is None
-    assert any("Reset paper account to $1000" in (row.get("message") or "") for row in account["logs"])
+    assert account["initial_capital"] == 100.0
+    assert account["cash"] == 99.0
+    assert account["trades"][0]["pnl_usdt"] == 1.0
+    assert account["trades"][0]["quantity"] == 0.05
+    assert account["position"]["qty"] == pytest.approx(0.04)
+    assert account["equity_curve"][0]["equity"] == pytest.approx(101.0)
+    assert any("Scaled paper account $1000 → $100" in (row.get("message") or "") for row in account["logs"])
 
 
-def test_mnq_qty_floor_forces_one_lot_on_1k():
-    # 0.5% of $1000 cannot buy 1 lot, but 1-lot risk ($10) ≤ 10% of cash → force qty=1
-    qty, forced = mnq_strategy.size_contracts(1000.0, risk_pts=5.0, point_value=2.0)
-    assert qty == 1
-    assert forced is True
-    # Typical OR stop (~20 pts = $40) still allowed on $1k paper (≤10%)
-    qty_mid, forced_mid = mnq_strategy.size_contracts(1000.0, risk_pts=20.0, point_value=2.0)
-    assert qty_mid == 1
-    assert forced_mid is True
-    # Too wide: 1-lot risk $120 > 10% of $1000 → stay flat
-    qty2, forced2 = mnq_strategy.size_contracts(1000.0, risk_pts=60.0, point_value=2.0)
-    assert qty2 == 0
-    assert forced2 is False
-    # Larger cash sizes normally without force
-    qty3, forced3 = mnq_strategy.size_contracts(50_000.0, risk_pts=5.0, point_value=2.0)
-    assert qty3 >= 1
-    assert forced3 is False
+def test_mnq_fractional_shares_on_small_paper():
+    # $100 book, $1 stop on ~$480 QQQ → fractional shares, not whole lots.
+    qty = mnq_strategy.size_shares(100.0, entry=480.0, stop=479.0)
+    assert qty > 0
+    assert qty < 1.0
+    assert qty * 480.0 <= 100.0
+    # Too wide a stop vs tiny cash → below min notional → 0
+    qty_wide = mnq_strategy.size_shares(100.0, entry=480.0, stop=400.0)
+    assert qty_wide == 0.0
+    # Larger cash can take more shares
+    qty_big = mnq_strategy.size_shares(5_000.0, entry=480.0, stop=479.0)
+    assert qty_big > qty
 
 
-def test_mnq_process_opens_with_forced_qty(tmp_path: Path):
-    # OR width ≥8; stop at mid → risk_pts≈7 → $14 ≤ 2% of $1k so qty floors to 1
+def test_mnq_process_opens_fractional_qqq():
     account = {
-        "cash": 1000.0,
+        "cash": 100.0,
         "position": None,
         "trades": [],
         "equity_curve": [],
         "logs": [],
-        "or_high": 2008.0,
-        "or_low": 2000.0,
+        "or_high": 480.5,
+        "or_low": 479.5,
         "trades_today": 0,
         "current_day": "2024-06-03",
     }
     row = {
         "timestamp": pd.Timestamp("2024-06-03 14:00", tz="UTC"),
         "cet_date": "2024-06-03",
-        "open": 2009.0,
-        "high": 2014.0,
-        "low": 2008.0,
-        "close": 2011.0,
+        "open": 480.6,
+        "high": 481.2,
+        "low": 480.4,
+        "close": 480.8,
         "volume": 2000.0,
         "volume_sma": 1000.0,
         "cet_hour": 16,
         "cet_minute": 0,
-        "atr": 12.0,
+        "atr": 0.8,
     }
     mnq_live._process_bar(account, row, mnq_strategy.MnqRules())
     assert account["position"] is not None
-    assert account["position"]["qty"] == 1
-    assert any("Forced MNQ qty=1" in (log.get("message") or "") for log in account["logs"])
+    assert float(account["position"]["qty"]) > 0
+    assert float(account["position"]["qty"]) < 1.0
 
 
 def test_exporter_live_trade_count_not_accepted_153(monkeypatch):
     live = {
         "bot_running": True,
         "trading_paused": False,
-        "equity_usdt": 1000.0,
-        "paper_equity_cap": 1000.0,
+        "equity_usdt": 100.0,
+        "paper_equity_cap": 100.0,
         "operations": [],
         "logs": [],
         "regime": {},
@@ -223,7 +260,7 @@ def test_exporter_live_trade_count_not_accepted_153(monkeypatch):
     assert payload["trade_count"] == 0
     assert payload["trade_count"] != orbit_exporter.ACCEPTED_METRICS["trade_count"]
     assert payload["research_trade_count"] == 153
-    assert payload["equity_usdt"] == 1000.0
+    assert payload["equity_usdt"] == 100.0
     assert payload["status"] == "PAPER"
     assert payload["total_return_pct"] == 0.0
     assert "research_return_pct" in payload

@@ -83,6 +83,10 @@ DEFAULT_STATE: dict[str, Any] = {
     "last_updated": None,
     "balance_usdt": None,
     "equity_usdt": None,
+    "cash_usdt": None,
+    "open_pnl_usdt": 0.0,
+    # Spot-style idle cash: only changes on buys/sells, not when marks move.
+    "paper_cash_usdt": None,
     "base_balance": None,
     "start_of_day_balance": None,
     "daily_drawdown_pct": 0.0,

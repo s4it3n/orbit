@@ -1,54 +1,6 @@
-"""CLI walk-forward for MNQ 15m."""
-
-from __future__ import annotations
-
-import argparse
-import json
+"""Back-compat entrypoint. Prefer: ``python scripts/run_walk_forward_mnq.py``."""
 from pathlib import Path
-
-from mnq_bot.data import fetch_mnq_15m
-from mnq_bot.walk_forward import ACCEPTANCE, run_walk_forward
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Walk-forward validation for MNQ 15m.")
-    parser.add_argument("--output", type=Path, default=Path("backtest_output"))
-    parser.add_argument("--force-fetch", action="store_true")
-    args = parser.parse_args()
-
-    print("Fetching MNQ=F 15m...")
-    frame = fetch_mnq_15m(force=args.force_fetch)
-    print(f"  bars={len(frame)}  {frame['timestamp'].iloc[0]} -> {frame['timestamp'].iloc[-1]}")
-    print("Running walk-forward...")
-    result = run_walk_forward(frame, on_progress=lambda f: print(
-        f"  {f['test_from']} to {f['test_to']}: {f['test']['total_return_pct']:+.2f}% "
-        f"sharpe={f['test']['sharpe_ratio']:+.2f} trades={f['test']['trade_count']}"
-    ))
-    agg = result["aggregate"]
-    print("\nOOS return %", round(agg["return_pct"], 2))
-    print("Sharpe", round(agg["sharpe"], 3), "DD", round(agg["max_drawdown_pct"], 2))
-    print("PF", round(agg["profit_factor"], 3), "win%", round(agg["win_rate_pct"], 1))
-    print(
-        "Volume filter",
-        agg.get("volume_filter_mult"),
-        "win% vs no-filter",
-        round(agg.get("baseline_win_rate_pct", 0.0), 1),
-        "lift",
-        round(agg.get("win_rate_lift_pct", 0.0), 1),
-    )
-    print("Trades", agg["trade_count"], "folds", agg["fold_count"])
-    print("OR window fold counts:", agg.get("or_window_fold_counts"))
-    print("Preferred OR duration (min):", agg.get("preferred_or_duration_minutes"))
-    for gate, passed in result["gates"].items():
-        print(f"  [{'PASS' if passed else 'FAIL'}] {gate}")
-    print("VERDICT:", "ACCEPTED" if result["accepted"] else "REJECTED")
-    print("Thresholds:", json.dumps(ACCEPTANCE))
-    args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "walk_forward_mnq.json").write_text(
-        json.dumps(result, indent=2, default=str), encoding="utf-8"
-    )
-    print("Wrote", args.output / "walk_forward_mnq.json")
-
+import runpy
 
 if __name__ == "__main__":
-    main()
+    runpy.run_path(str(Path(__file__).resolve().parent / "scripts" / "run_walk_forward_mnq.py"), run_name="__main__")

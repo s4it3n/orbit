@@ -9,11 +9,11 @@ def test_entry_message_is_short():
         "quantity": 12.4,
         "entry_price": 148.2,
         "initial_stop": 141.1,
-    }, equity=1000.0)
+    }, equity=100.0)
     assert "Crypto · buy" in text
     assert "SOL" in text
     assert "stop" in text
-    assert "Crypto  1,000.00" in text
+    assert "Crypto  100.00" in text
     assert "desk" in text
     assert "Universe" not in text
     assert "Protection" not in text
@@ -24,22 +24,22 @@ def test_exit_message_shows_pnl_and_desk():
         "ETH/USDT",
         0.5,
         3500.0,
-        42.18,
+        4.22,
         "trailing_stop",
-        equity=1042.18,
+        equity=104.22,
     )
     assert "Crypto · sell" in text
     assert "ETH" in text
-    assert "42.18" in text
+    assert "4.22" in text
     assert "trail stop" in text
-    assert "Crypto  1,042.18" in text
+    assert "Crypto  104.22" in text
     assert "Gold" in text
-    assert "MNQ" in text
+    assert "QQQ" in text
     assert "desk" in text
 
 
 def test_take_profit_title():
-    text = notify.format_exit("SOL/USDT", 6.0, 150.0, -3.2, "take_profit", equity=996.8)
+    text = notify.format_exit("SOL/USDT", 6.0, 150.0, -0.32, "take_profit", equity=99.68)
     assert "take profit" in text
     assert "desk" in text
 
@@ -55,28 +55,28 @@ def test_paper_equity_never_shows_faucet():
 def test_desk_block_totals_three_books():
     text = notify.format_desk_block(
         {
-            notify.CRYPTO_BOT: 1000.0,
-            notify.GOLD_BOT: 1100.0,
-            notify.MNQ_BOT: 900.0,
+            notify.CRYPTO_BOT: 100.0,
+            notify.GOLD_BOT: 110.0,
+            notify.MNQ_BOT: 90.0,
         }
     )
-    assert "Crypto  1,000.00" in text
-    assert "Gold    1,100.00" in text
-    assert "MNQ     900.00" in text
-    assert "desk    3,000.00" in text
+    assert "Crypto  100.00" in text
+    assert "Gold    110.00" in text
+    assert "QQQ     90.00" in text
+    assert "desk    300.00" in text
     assert "(+0.00)" in text or "(−0.00)" in text or "(+0.00)" in text
 
 
 def test_desk_block_shows_profit():
     text = notify.format_desk_block(
         {
-            notify.CRYPTO_BOT: 1100.0,
-            notify.GOLD_BOT: 1000.0,
-            notify.MNQ_BOT: 1000.0,
+            notify.CRYPTO_BOT: 110.0,
+            notify.GOLD_BOT: 100.0,
+            notify.MNQ_BOT: 100.0,
         }
     )
-    assert "desk    3,100.00" in text
-    assert "+100.00" in text
+    assert "desk    310.00" in text
+    assert "+10.00" in text
 
 
 def test_daily_digest_caps_equity():
@@ -93,14 +93,55 @@ def test_daily_digest_caps_equity():
     assert "10,120.50" not in text
 
 
-def test_notify_daily_is_silent():
-    notify.notify_daily(
-        candle_time="2026-08-24",
-        risk_on=True,
-        held=None,
-        top=None,
-        equity=10000,
+def test_desk_daily_summarizes_books_and_trades():
+    text = notify.format_desk_daily(
+        day="2026-08-30",
+        books={
+            notify.CRYPTO_BOT: 162.0,
+            notify.GOLD_BOT: 99.0,
+            notify.MNQ_BOT: 100.0,
+        },
+        open_books={
+            notify.CRYPTO_BOT: 150.0,
+            notify.GOLD_BOT: 100.0,
+            notify.MNQ_BOT: 100.0,
+        },
+        trades=[
+            {"bot": notify.GOLD_BOT, "symbol": "XAU/USD", "pnl": 1.25, "reason": "stop"},
+            {"bot": notify.CRYPTO_BOT, "symbol": "SOL", "pnl": -0.40, "reason": "exit"},
+        ],
+        positions=["Crypto  long SOL"],
+        regime="BTC risk-on",
     )
+    assert "Orbit · daily" in text
+    assert "2026-08-30 UTC" in text
+    assert "desk" in text
+    assert "day" in text
+    assert "2 closed" in text
+    assert "1W/1L" in text
+    assert "Crypto  long SOL" in text
+    assert "BTC risk-on" in text
+
+
+def test_notify_daily_is_safe_without_network(monkeypatch, tmp_path):
+    monkeypatch.setattr(notify, "_DAILY_PATH", tmp_path / "desk_daily.json")
+    monkeypatch.setattr(notify, "TELEGRAM_DAILY_HOUR", 0)
+    monkeypatch.setattr(notify, "is_configured", lambda: True)
+    monkeypatch.setattr(notify, "send", lambda message: True)
+    monkeypatch.setattr(
+        notify,
+        "desk_books",
+        lambda **kwargs: {
+            notify.CRYPTO_BOT: 100.0,
+            notify.GOLD_BOT: 100.0,
+            notify.MNQ_BOT: 100.0,
+        },
+    )
+    monkeypatch.setattr(notify, "_trades_closed_on", lambda day: [])
+    monkeypatch.setattr(notify, "_open_positions", lambda: [])
+    monkeypatch.setattr(notify, "_crypto_regime_line", lambda: "BTC risk-on")
+    assert notify.maybe_notify_daily_desk() is True
+    assert notify.maybe_notify_daily_desk() is False  # once per day
 
 
 def test_gold_exit_includes_bot_and_desk():
@@ -112,10 +153,10 @@ def test_gold_exit_includes_bot_and_desk():
         price=2650.0,
         pnl=12.5,
         reason="stop",
-        equity=1012.5,
+        equity=101.25,
     )
     assert "Gold · closed" in text
-    assert "Gold    1,012.50" in text
+    assert "Gold    101.25" in text
     assert "desk" in text
 
 

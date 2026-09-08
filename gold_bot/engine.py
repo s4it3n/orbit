@@ -13,6 +13,7 @@ import pandas as pd
 
 from . import strategy as gold_strategy
 from .data import fetch_gold_hourly
+from paper.costs import GOLD_COST_BPS, gold_fill_price, gold_side_cost
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / "gold_state.json"
@@ -58,7 +59,7 @@ def run_backtest(
     *,
     initial_capital: float = 1_000.0,
     rules: gold_strategy.GoldRules | None = None,
-    cost_bps: float = 0.5,
+    cost_bps: float = GOLD_COST_BPS,
 ) -> GoldResult:
     """Backtest the Donchian squeeze breakout on hourly gold futures.
 
@@ -78,7 +79,28 @@ def run_backtest(
         return cash + pnl
 
     def apply_cost(qty: float, price: float) -> float:
-        return abs(qty) * price * cost_bps / 10_000.0
+        return gold_side_cost(qty, price, cost_bps=cost_bps)
+
+    def close_lot(exit_px: float, ts: Any, reason: str) -> None:
+        nonlocal cash, lot
+        assert lot is not None
+        fill_side = "sell" if lot.side == "long" else "buy"
+        fill_px = gold_fill_price(exit_px, fill_side)
+        pnl = (fill_px - lot.entry) * lot.qty * (1 if lot.side == "long" else -1)
+        pnl -= apply_cost(lot.qty, fill_px)
+        cash += pnl
+        result.trades.append({
+            "symbol": "XAU/USD",
+            "side": lot.side,
+            "entry_time": str(lot.entry_time),
+            "exit_time": str(ts),
+            "entry_price": lot.entry,
+            "exit_price": fill_px,
+            "quantity": lot.qty,
+            "pnl_usdt": pnl,
+            "reason": reason,
+        })
+        lot = None
 
     cols = list(data.columns)
     for tup in data.itertuples(index=False, name=None):
@@ -109,21 +131,7 @@ def run_backtest(
             else:
                 reason = ""
             if hit and exit_px is not None:
-                pnl = (exit_px - lot.entry) * lot.qty * (1 if lot.side == "long" else -1)
-                pnl -= apply_cost(lot.qty, exit_px)
-                cash += pnl
-                result.trades.append({
-                    "symbol": "XAU/USD",
-                    "side": lot.side,
-                    "entry_time": str(lot.entry_time),
-                    "exit_time": str(ts),
-                    "entry_price": lot.entry,
-                    "exit_price": exit_px,
-                    "quantity": lot.qty,
-                    "pnl_usdt": pnl,
-                    "reason": reason,
-                })
-                lot = None
+                close_lot(float(exit_px), ts, reason)
             else:
                 lot.stop = gold_strategy.update_stop(
                     lot.side, lot.entry, lot.stop, lot.extreme, atr, rules=rules
@@ -135,37 +143,27 @@ def run_backtest(
             if signal is not None:
                 qty = gold_strategy.position_size(cash, signal.entry, signal.stop, rules)
                 if qty > 0:
-                    cash -= apply_cost(qty, signal.entry)
+                    fill_side = "buy" if signal.side == "long" else "sell"
+                    fill_px = gold_fill_price(signal.entry, fill_side)
+                    delta = fill_px - signal.entry
+                    cash -= apply_cost(qty, fill_px)
                     lot = _Lot(
                         side=signal.side,
-                        entry=signal.entry,
-                        stop=signal.stop,
+                        entry=fill_px,
+                        stop=signal.stop + delta,
                         qty=qty,
                         entry_time=ts,
                         atr=signal.atr,
-                        extreme=signal.entry,
+                        extreme=fill_px,
                     )
 
         result.equity_curve.append({"timestamp": str(ts), "equity": mark(close)})
 
     if lot is not None:
         last = data.iloc[-1]
-        px = float(last["close"])
-        pnl = (px - lot.entry) * lot.qty * (1 if lot.side == "long" else -1)
-        pnl -= apply_cost(lot.qty, px)
-        cash += pnl
-        result.trades.append({
-            "symbol": "XAU/USD",
-            "side": lot.side,
-            "entry_time": str(lot.entry_time),
-            "exit_time": str(last["timestamp"]),
-            "entry_price": lot.entry,
-            "exit_price": px,
-            "quantity": lot.qty,
-            "pnl_usdt": pnl,
-            "reason": "end_of_test",
-        })
-        result.equity_curve[-1]["equity"] = cash
+        close_lot(float(last["close"]), _as_ts(last["timestamp"]), "end_of_test")
+        if result.equity_curve:
+            result.equity_curve[-1]["equity"] = cash
 
     result.final_equity = cash
     return result

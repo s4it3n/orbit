@@ -19,7 +19,7 @@ from typing import Any
 
 import ccxt
 import pandas as pd
-from fastapi import FastAPI, Form, Query, Request
+from fastapi import Body, FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -40,8 +40,11 @@ from backtest.engine import run_backtest
 from backtest.metrics import calculate_metrics
 from backtest.walk_forward import run_walk_forward
 from gold_bot import live as gold_live
+from gold_bot import settings as gold_settings
 from mnq_bot import live as mnq_live
+from mnq_bot import settings as mnq_settings
 from paper import loops as paper_loops
+from webapp.bot_charts import gold_chart_payload, mnq_chart_payload
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -74,7 +77,7 @@ MOCK_BOTS = {
         "win_rate_pct": None,
         "profit_factor": None,
         "trade_count": 0,
-        "equity_usdt": 1000,
+        "equity_usdt": 100,
         "research_return_pct": 35.2,
         "research_trade_count": 153,
         "acceptance_note": "Walk-forward ACCEPTED (9/9 Gates Passed)",
@@ -95,7 +98,7 @@ MOCK_BOTS = {
         "max_drawdown_pct": 0.0,
         "win_rate_pct": 0.0,
         "trade_count": 0,
-        "equity_usdt": 1000,
+        "equity_usdt": 100,
         "equity_curve": [],
         "recent_trades": [],
         "logs": [],
@@ -103,8 +106,8 @@ MOCK_BOTS = {
     },
     "mnq": {
         "bot_id": "mnq",
-        "bot_name": "Nasdaq 15m ORB",
-        "asset_class": "MNQ Futures",
+        "bot_name": "QQQ 15m ORB",
+        "asset_class": "QQQ ETF",
         "timeframe": "15m",
         "status": "IDLE",
         "total_return_pct": 0.0,
@@ -112,7 +115,7 @@ MOCK_BOTS = {
         "max_drawdown_pct": 0.0,
         "win_rate_pct": 0.0,
         "trade_count": 0,
-        "equity_usdt": 1000,
+        "equity_usdt": 100,
         "equity_curve": [],
         "recent_trades": [],
         "logs": [],
@@ -187,6 +190,49 @@ class SettingsUpdate(BaseModel):
 class BacktestRequest(BaseModel):
     period: str = "1m"
     initial_capital: float = Field(10_000.0, gt=0, le=100_000_000)
+
+
+BOT_SETTINGS_MODULES = {
+    "gold": gold_settings,
+    "mnq": mnq_settings,
+}
+
+
+def _coerce_bot_setting_value(default: Any, value: Any) -> Any:
+    if value is None or value == "":
+        return None if default is None else value
+    if isinstance(default, bool):
+        return bool(value)
+    if isinstance(default, int) and not isinstance(default, bool):
+        return int(value)
+    if isinstance(default, float):
+        return float(value)
+    return value
+
+
+def _normalize_bot_settings(bot_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    module = BOT_SETTINGS_MODULES[bot_id]
+    defaults = module.DEFAULT_SETTINGS
+    cleaned: dict[str, Any] = {}
+    for key, value in updates.items():
+        if key not in defaults or value is None:
+            continue
+        if key in ("session_start_hour", "session_end_hour") and value == "":
+            cleaned[key] = None
+            continue
+        cleaned[key] = _coerce_bot_setting_value(defaults[key], value)
+    return cleaned
+
+
+def _save_bot_settings(bot_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    module = BOT_SETTINGS_MODULES[bot_id]
+    saved = module.save_settings(updates)
+    if "bot_enabled" in updates:
+        if bot_id == "gold":
+            gold_live.set_enabled(bool(updates["bot_enabled"]))
+        else:
+            mnq_live.set_enabled(bool(updates["bot_enabled"]))
+    return saved
 
 
 def _json_safe(value: Any) -> Any:
@@ -391,6 +437,8 @@ async def lifespan(app: FastAPI):
         state.save_settings({"bot_enabled": True})
         config.reload_settings()
         controller.start(engine.run_bot_loop)
+        gold_live.set_enabled(True)
+        mnq_live.set_enabled(True)
         paper_loops.start("gold", gold_live.run_bot_loop)
         paper_loops.start("mnq", mnq_live.run_bot_loop)
         state.append_log("Autostart: crypto + gold + mnq paper loops", "INFO")
@@ -524,10 +572,44 @@ def _load_bot_state(bot_id: str) -> dict[str, Any]:
     else:
         merged["mock"] = True
 
-    # Always overlay research walk-forward so the main page shows OOS results.
+    # Crypto desk updates bot_state every poll; orbit_state can lag a cycle.
+    # Prefer live paper equity so the main page tracks open-trade marks.
+    if bot_id == "orbit":
+        try:
+            from orbit import exporter as orbit_exporter
+            from orbit import state as orbit_bot_state
+
+            live = orbit_bot_state.load_state()
+            if live.get("equity_usdt") is not None or live.get("bot_running"):
+                payload = orbit_exporter.build_export_payload(live)
+                for key in (
+                    "cash_usdt",
+                    "equity_usdt",
+                    "open_pnl_usdt",
+                    "total_return_pct",
+                    "paper_equity_cap",
+                    "current_position",
+                    "status",
+                    "trade_count",
+                    "updated_at",
+                    "equity_curve",
+                    "max_drawdown_pct",
+                ):
+                    if key in payload and payload[key] is not None:
+                        merged[key] = payload[key]
+                merged["mock"] = False
+                merged["mode"] = payload.get("mode") or merged.get("mode") or "paper_live"
+        except Exception:
+            pass
+
+    # Overlay research walk-forward metrics only — never clobber live identity.
     headline = _walk_forward_headline(bot_id)
     if headline:
-        merged.update(headline)
+        for key, value in headline.items():
+            if key in {"bot_id", "bot_name", "asset_class", "timeframe", "status"}:
+                continue
+            if value is not None:
+                merged[key] = value
         if merged.get("sharpe_ratio") is None:
             merged["sharpe_ratio"] = headline.get("research_sharpe_ratio")
     return merged
@@ -535,7 +617,12 @@ def _load_bot_state(bot_id: str) -> dict[str, Any]:
 
 def _portfolio_payload() -> dict[str, Any]:
     bots = [_load_bot_state(bot_id) for bot_id in ("orbit", "gold", "mnq")]
-    combined = sum(float(b.get("equity_usdt") or 0) for b in bots)
+    combined_equity = sum(float(b.get("equity_usdt") or 0) for b in bots)
+    combined_cash = sum(
+        float(b.get("cash_usdt") if b.get("cash_usdt") is not None else b.get("equity_usdt") or 0)
+        for b in bots
+    )
+    combined_open = sum(float(b.get("open_pnl_usdt") or 0) for b in bots)
     avg_ret = sum(float(b.get("total_return_pct") or 0) for b in bots) / max(len(bots), 1)
     global_dd = min(float(b.get("max_drawdown_pct") or 0) for b in bots)
     live = sum(
@@ -548,7 +635,9 @@ def _portfolio_payload() -> dict[str, Any]:
     avg_wf = sum(float(b.get("research_return_pct") or 0) for b in bots) / max(len(bots), 1)
     return {
         "ok": True,
-        "combined_equity": combined,
+        "combined_equity": combined_equity,
+        "combined_cash_usdt": combined_cash,
+        "combined_open_pnl_usdt": round(combined_open, 2),
         "monthly_pnl_pct": round(avg_ret, 2),
         "global_max_dd_pct": global_dd,
         "system_health": health,
@@ -581,7 +670,12 @@ async def bot_detail_page(request: Request, bot_id: str) -> HTMLResponse:
         return await crypto_desk(request)
     if bot_id not in STATE_FILES:
         return HTMLResponse("Unknown bot", status_code=404)
-    return TEMPLATES.TemplateResponse(request, "bot_detail.html", {"bot_id": bot_id})
+    module = BOT_SETTINGS_MODULES.get(bot_id)
+    ctx = {"bot_id": bot_id}
+    if module is not None:
+        ctx["settings_json"] = json.dumps(module.load_settings())
+        ctx["defaults_json"] = json.dumps(module.DEFAULT_SETTINGS)
+    return TEMPLATES.TemplateResponse(request, "bot_detail.html", ctx)
 
 
 @app.get("/api/bots")
@@ -606,6 +700,49 @@ async def api_state() -> dict[str, Any]:
 @app.get("/api/settings")
 async def api_settings() -> dict[str, Any]:
     return state.load_settings()
+
+
+@app.get("/api/bots/{bot_id}/settings")
+async def api_bot_settings_get(bot_id: str) -> dict[str, Any]:
+    bot_id = bot_id.lower().strip()
+    if bot_id not in BOT_SETTINGS_MODULES:
+        return {"ok": False, "message": "Unknown bot"}
+    module = BOT_SETTINGS_MODULES[bot_id]
+    return {
+        "ok": True,
+        "settings": module.load_settings(),
+        "defaults": module.DEFAULT_SETTINGS,
+    }
+
+
+@app.post("/api/bots/{bot_id}/settings")
+async def api_bot_settings_post(
+    bot_id: str, body: dict[str, Any] = Body(...)
+) -> dict[str, Any]:
+    bot_id = bot_id.lower().strip()
+    if bot_id not in BOT_SETTINGS_MODULES:
+        return {"ok": False, "message": "Unknown bot"}
+    updates = _normalize_bot_settings(bot_id, body)
+    if not updates:
+        return {"ok": False, "message": "No valid settings to save"}
+    saved = _save_bot_settings(bot_id, updates)
+    return {"ok": True, "settings": saved}
+
+
+@app.get("/api/bots/{bot_id}/candles")
+async def api_bot_candles(
+    bot_id: str,
+    limit: int = Query(320, ge=50, le=800),
+) -> dict[str, Any]:
+    bot_id = bot_id.lower().strip()
+    try:
+        if bot_id == "gold":
+            return gold_chart_payload(limit=limit)
+        if bot_id == "mnq":
+            return mnq_chart_payload(limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "message": str(exc), "candles": []}
+    return {"ok": False, "message": "Unknown bot", "candles": []}
 
 
 @app.post("/api/settings")
@@ -872,6 +1009,47 @@ async def api_paper_bot_stop(bot_id: str) -> dict[str, Any]:
         mnq_live.set_enabled(False)
         return paper_loops.stop("mnq")
     return {"ok": False, "message": "Unknown bot"}
+
+
+class FlattenConfirm(BaseModel):
+    password: str = ""
+    # Back-compat with older UI that sent confirm=FLATTEN
+    confirm: str = ""
+
+
+def _flatten_password_ok(body: FlattenConfirm) -> bool:
+    got = (body.password or body.confirm or "").strip()
+    if not got:
+        return False
+    return passwords_match(got, dashboard_password())
+
+
+@app.post("/api/bots/{bot_id}/flatten")
+async def api_bot_flatten(bot_id: str, body: FlattenConfirm) -> JSONResponse:
+    from paper.flatten import flatten_bot
+
+    if not _flatten_password_ok(body):
+        return JSONResponse(
+            {"ok": False, "message": "Wrong dashboard password"},
+            status_code=401,
+        )
+    result = flatten_bot(bot_id, pause=True)
+    code = 200 if result.get("ok") else 500
+    return JSONResponse(result, status_code=code)
+
+
+@app.post("/api/desk/flatten")
+async def api_desk_flatten(body: FlattenConfirm) -> JSONResponse:
+    from paper.flatten import flatten_all
+
+    if not _flatten_password_ok(body):
+        return JSONResponse(
+            {"ok": False, "message": "Wrong dashboard password"},
+            status_code=401,
+        )
+    result = flatten_all(pause=True)
+    code = 200 if result.get("ok") else 500
+    return JSONResponse(result, status_code=code)
 
 
 @app.post("/api/bots/{bot_id}/run-once")

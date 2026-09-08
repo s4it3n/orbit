@@ -1,4 +1,4 @@
-"""MNQ live paper loop — test money marked to Yahoo MNQ/NQ/QQQ."""
+"""QQQ live paper loop — test money marked to Yahoo QQQ (Nasdaq-100 ETF)."""
 
 from __future__ import annotations
 
@@ -10,11 +10,22 @@ from typing import Any
 
 import pandas as pd
 
-from paper import append_equity, append_log, load_account, metrics_from_account, save_account, utc_now
+from paper import (
+    append_equity,
+    append_log,
+    load_account,
+    metrics_from_account,
+    save_account,
+    scale_paper_account,
+    utc_now,
+)
+from paper.costs import QQQ_COST_BPS, qqq_fill_price, qqq_side_cost
 from paper.loops import is_running as loop_running
 
+from . import settings as mnq_settings
 from . import strategy as mnq_strategy
 from .data import fetch_mnq_15m
+from .strategy import SYMBOL
 
 ROOT = Path(__file__).resolve().parent.parent
 ACCOUNT_PATH = ROOT / "mnq_live.json"
@@ -22,12 +33,11 @@ STATE_PATH = ROOT / "mnq_state.json"
 WF_PATH = ROOT / "backtest_output" / "walk_forward_mnq.json"
 
 BOT_ID = "mnq"
-BOT_NAME = "Nasdaq 15m ORB"
-ASSET_CLASS = "MNQ Futures"
-INITIAL_CAPITAL = float(os.getenv("MNQ_PAPER_EQUITY", os.getenv("ORBIT_PAPER_EQUITY", "1000")))
-POINT_VALUE = 2.0
-COMMISSION = 0.50
-LOOP_INTERVAL_SEC = 90
+BOT_NAME = "QQQ 15m ORB"
+ASSET_CLASS = "QQQ ETF"
+INITIAL_CAPITAL = float(os.getenv("MNQ_PAPER_EQUITY", os.getenv("ORBIT_PAPER_EQUITY", "100")))
+COST_BPS = QQQ_COST_BPS
+LOOP_INTERVAL_SEC = int(os.getenv("MNQ_LOOP_INTERVAL_SEC", "90"))
 WARMUP_BARS = 260
 LIVE_TAIL = 400
 
@@ -70,14 +80,19 @@ def _fresh_defaults(*, enabled: bool = True, bot_running: bool = False) -> dict[
 
 def _ensure_paper_capital(account: dict[str, Any]) -> dict[str, Any]:
     stored = float(account.get("initial_capital") or 0.0)
+    if stored <= 0:
+        return _fresh_defaults(
+            enabled=bool(account.get("enabled", True)),
+            bot_running=bool(account.get("bot_running", False)),
+        )
     if abs(stored - INITIAL_CAPITAL) < 1e-9:
         return account
-    reset = _fresh_defaults(
-        enabled=bool(account.get("enabled", True)),
-        bot_running=bool(account.get("bot_running", False)),
+    scaled = scale_paper_account(account, new_initial=INITIAL_CAPITAL, old_initial=stored)
+    append_log(
+        scaled,
+        f"Scaled paper account ${stored:.0f} → ${INITIAL_CAPITAL:.0f} (x{INITIAL_CAPITAL / stored:.4g})",
     )
-    append_log(reset, f"Reset paper account to ${INITIAL_CAPITAL:.0f}")
-    return reset
+    return scaled
 
 
 def _load() -> dict[str, Any]:
@@ -91,13 +106,17 @@ def _as_ts(value: Any) -> pd.Timestamp:
     return ts.tz_convert("UTC")
 
 
+def _apply_cost(qty: float, price: float) -> float:
+    return qqq_side_cost(qty, price, cost_bps=COST_BPS)
+
+
 def _mark(account: dict[str, Any], price: float) -> float:
     cash = float(account["cash"])
     lot = account.get("position")
     if not lot:
         return cash
     side = 1 if lot["side"] == "long" else -1
-    return cash + (price - float(lot["entry"])) * float(lot["qty"]) * POINT_VALUE * side
+    return cash + (price - float(lot["entry"])) * float(lot["qty"]) * side
 
 
 def _headline() -> dict[str, Any] | None:
@@ -140,7 +159,7 @@ def export_live_state(account: dict[str, Any] | None = None) -> dict[str, Any]:
     current = None
     if lot:
         current = {
-            "symbol": "MNQ",
+            "symbol": SYMBOL,
             "side": lot["side"],
             "entry_price": lot["entry"],
             "stop": lot["stop"],
@@ -163,7 +182,9 @@ def export_live_state(account: dict[str, Any] | None = None) -> dict[str, Any]:
         "profit_factor": metrics["profit_factor"],
         "trade_count": metrics["trade_count"],
         "current_position": current,
+        "cash_usdt": metrics["cash_usdt"],
         "equity_usdt": metrics["equity_usdt"],
+        "open_pnl_usdt": metrics["open_pnl_usdt"],
         "equity_curve": list(account.get("equity_curve") or [])[-500:],
         "recent_trades": list(account.get("trades") or [])[-20:][::-1],
         "accepted": bool(headline.get("accepted", True)),
@@ -176,7 +197,7 @@ def export_live_state(account: dict[str, Any] | None = None) -> dict[str, Any]:
         "research_win_rate_pct": headline.get("research_win_rate_pct"),
         "research_profit_factor": headline.get("research_profit_factor"),
         "research_trade_count": headline.get("research_trade_count"),
-        "data_source": "Yahoo Finance MNQ/NQ/QQQ 15m (live paper)",
+        "data_source": "Yahoo Finance QQQ 15m (live paper)",
         "mode": "paper_live",
         "logs": list(account.get("logs") or [])[-40:],
     }
@@ -196,33 +217,35 @@ def _close_lot(
         return
     qty = float(lot["qty"])
     side = lot["side"]
-    pnl = (exit_px - float(lot["entry"])) * qty * POINT_VALUE * (1 if side == "long" else -1)
-    pnl -= COMMISSION * qty
+    fill_side = "sell" if side == "long" else "buy"
+    fill_px = qqq_fill_price(exit_px, fill_side)
+    pnl = (fill_px - float(lot["entry"])) * qty * (1 if side == "long" else -1)
+    pnl -= _apply_cost(qty, fill_px)
     account["cash"] = float(account["cash"]) + pnl
     trades = list(account.get("trades") or [])
     trades.append({
-        "symbol": "MNQ",
+        "symbol": SYMBOL,
         "side": side,
         "entry_time": lot["entry_time"],
         "exit_time": str(ts),
         "entry_price": float(lot["entry"]),
-        "exit_price": exit_px,
+        "exit_price": fill_px,
         "quantity": qty,
         "pnl_usdt": pnl,
         "reason": reason,
     })
     account["trades"] = trades[-200:]
     account["position"] = None
-    append_log(account, f"EXIT {side} @ {exit_px:.2f} ({reason}) pnl={pnl:.2f}")
+    append_log(account, f"EXIT {side} @ {fill_px:.2f} ({reason}) pnl={pnl:.2f}")
     try:
         from orbit.notify import MNQ_BOT, notify_paper_exit
 
         notify_paper_exit(
             MNQ_BOT,
             side=side,
-            symbol="MNQ",
+            symbol=SYMBOL,
             qty=qty,
-            price=exit_px,
+            price=fill_px,
             pnl=pnl,
             reason=reason,
             equity=float(account["cash"]),
@@ -282,32 +305,28 @@ def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: mnq_strate
             rules=rules,
         )
         if signal is not None:
-            risk_pts = abs(signal.entry - signal.stop)
-            qty, forced = mnq_strategy.size_contracts(
-                float(account["cash"]), risk_pts, point_value=POINT_VALUE
+            qty = mnq_strategy.size_shares(
+                float(account["cash"]), signal.entry, signal.stop, rules=rules
             )
-            if qty >= 1:
-                account["cash"] = float(account["cash"]) - COMMISSION * qty
+            if qty > 0:
+                fill_side = "buy" if signal.side == "long" else "sell"
+                fill_px = qqq_fill_price(signal.entry, fill_side)
+                stop = float(signal.stop) + (fill_px - signal.entry)
+                take_profit = float(signal.take_profit) + (fill_px - signal.entry)
+                account["cash"] = float(account["cash"]) - _apply_cost(qty, fill_px)
                 account["position"] = {
                     "side": signal.side,
-                    "entry": signal.entry,
-                    "stop": signal.stop,
-                    "take_profit": signal.take_profit,
-                    "qty": qty,
+                    "entry": fill_px,
+                    "stop": stop,
+                    "take_profit": take_profit,
+                    "qty": float(qty),
                     "entry_time": str(ts),
                 }
                 account["trades_today"] = int(account.get("trades_today") or 0) + 1
-                note = " (forced 1-lot for $1k paper)" if forced else ""
-                if forced:
-                    append_log(
-                        account,
-                        f"Forced MNQ qty=1 — 1-lot risk "
-                        f"{risk_pts * POINT_VALUE:.2f} ≤ 2% of cash",
-                    )
                 append_log(
                     account,
-                    f"ENTRY {signal.side} @ {signal.entry:.2f} qty={qty} "
-                    f"stop={signal.stop:.2f} tp={signal.take_profit:.2f}{note}",
+                    f"ENTRY {signal.side} @ {fill_px:.2f} qty={qty:.4f} "
+                    f"stop={stop:.2f} tp={take_profit:.2f}",
                 )
                 try:
                     from orbit.notify import MNQ_BOT, notify_paper_entry
@@ -315,10 +334,10 @@ def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: mnq_strate
                     notify_paper_entry(
                         MNQ_BOT,
                         side=signal.side,
-                        symbol="MNQ",
+                        symbol=SYMBOL,
                         qty=float(qty),
-                        price=signal.entry,
-                        stop=signal.stop,
+                        price=fill_px,
+                        stop=stop,
                         equity=_mark(account, close),
                     )
                 except Exception:
@@ -330,8 +349,9 @@ def _process_bar(account: dict[str, Any], row: dict[str, Any], rules: mnq_strate
 
 def run_iteration(*, force_refresh: bool = False) -> dict[str, Any]:
     account = _load()
-    rules = mnq_strategy.MnqRules()
-    if not account.get("enabled", True):
+    settings = mnq_settings.load_settings()
+    rules = mnq_settings.rules_from_settings(settings)
+    if not account.get("enabled", True) or not settings.get("bot_enabled", False):
         account["bot_running"] = False
         save_account(ACCOUNT_PATH, account)
         return export_live_state(account)
@@ -369,14 +389,23 @@ def run_iteration(*, force_refresh: bool = False) -> dict[str, Any]:
     account["bot_running"] = True
     append_log(account, f"Cycle ok — processed {processed} new bar(s)")
     save_account(ACCOUNT_PATH, account)
+    try:
+        from orbit.notify import maybe_notify_daily_desk
+
+        maybe_notify_daily_desk()
+    except Exception:
+        pass
     return export_live_state(account)
 
 
 def run_bot_loop(stop_event: threading.Event) -> None:
+    # Keep settings.bot_enabled in sync — run_iteration gates on it, and
+    # ORBIT_AUTOSTART used to start the thread with bot_enabled still false.
+    mnq_settings.save_settings({"bot_enabled": True})
     account = _load()
     account["enabled"] = True
     account["bot_running"] = True
-    append_log(account, "MNQ paper bot started (Yahoo test money)")
+    append_log(account, "QQQ paper bot started (Yahoo test money)")
     save_account(ACCOUNT_PATH, account)
     export_live_state(account)
 
@@ -391,18 +420,51 @@ def run_bot_loop(stop_event: threading.Event) -> None:
             save_account(ACCOUNT_PATH, account)
             export_live_state(account)
         cycles += 1
-        stop_event.wait(LOOP_INTERVAL_SEC)
+        interval = int(mnq_settings.load_settings().get("loop_interval_sec") or LOOP_INTERVAL_SEC)
+        stop_event.wait(interval)
 
     account = _load()
     account["bot_running"] = False
-    append_log(account, "MNQ paper bot stopped")
+    append_log(account, "QQQ paper bot stopped")
     save_account(ACCOUNT_PATH, account)
     export_live_state(account)
 
 
 def set_enabled(enabled: bool) -> dict[str, Any]:
+    enabled = bool(enabled)
+    mnq_settings.save_settings({"bot_enabled": enabled})
     account = _load()
-    account["enabled"] = bool(enabled)
-    append_log(account, "Trading enabled" if enabled else "Trading paused")
+    was = bool(account.get("enabled", True))
+    account["enabled"] = enabled
+    if was != enabled:
+        append_log(account, "Trading enabled" if enabled else "Trading paused")
     save_account(ACCOUNT_PATH, account)
     return export_live_state(account)
+
+
+def flatten_now(*, reason: str = "manual_flatten") -> dict[str, Any]:
+    """Close the open paper lot at the latest mark (if any)."""
+    account = _load()
+    lot = account.get("position")
+    if not lot:
+        append_log(account, "Flatten requested — already flat")
+        save_account(ACCOUNT_PATH, account)
+        return {"closed": None, "state": export_live_state(account)}
+    try:
+        frame = fetch_mnq_15m(force=True)
+        close = float(frame.iloc[-1]["close"])
+        ts = _as_ts(frame.iloc[-1]["timestamp"])
+    except Exception as exc:  # noqa: BLE001
+        close = float(lot.get("entry") or 0.0)
+        ts = pd.Timestamp.now(tz="UTC")
+        if close <= 0:
+            return {"closed": None, "error": str(exc), "state": export_live_state(account)}
+    side = str(lot.get("side") or "long")
+    qty = float(lot.get("qty") or 0.0)
+    _close_lot(account, exit_px=close, ts=ts, reason=reason)
+    append_log(account, f"Manual flatten closed {side} qty={qty:.6g} @ {close:.2f}")
+    save_account(ACCOUNT_PATH, account)
+    return {
+        "closed": {"side": side, "qty": qty, "price": close, "reason": reason},
+        "state": export_live_state(account),
+    }

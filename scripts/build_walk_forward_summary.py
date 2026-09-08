@@ -50,7 +50,7 @@ def main() -> None:
     mnq = _load("walk_forward_mnq.json")
     summary = {
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "capital_per_bot": 1000,
+        "capital_per_bot": 100,
         "bots": {
             "orbit": _pack(
                 "orbit",
@@ -60,7 +60,7 @@ def main() -> None:
                 win_rate=64.2,
             ),
             "gold": _pack("gold", "Gold 1H Volatility Breakout", "1h", gold),
-            "mnq": _pack("mnq", "Nasdaq 15m ORB", "15m", mnq),
+            "mnq": _pack("mnq", "QQQ 15m ORB", "15m", mnq),
         },
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)

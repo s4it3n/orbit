@@ -73,38 +73,45 @@ def test_mnq_orb_and_backtest():
     assert result.bars > 100
     assert result.final_equity > 0
     row = pd.Series({
-        "close": 2010.0,
+        "close": 480.8,
         "volume": 2000,
         "volume_sma": 1000,
         "cet_hour": 16,
         "cet_minute": 0,
-        "atr": 12.0,
+        "atr": 0.8,
     })
-    signal = mnq.evaluate_entry(row, or_high=2000.0, or_low=1990.0, trades_today=0)
+    signal = mnq.evaluate_entry(row, or_high=480.5, or_low=479.5, trades_today=0)
     assert signal is not None and signal.side == "long"
 
 
 def test_mnq_volume_filter_1_25x_sma():
     base = {
-        "close": 2010.0,
+        "close": 480.8,
         "volume_sma": 1000.0,
         "cet_hour": 16,
         "cet_minute": 0,
-        "atr": 12.0,
+        "atr": 0.8,
     }
     weak = pd.Series({**base, "volume": 1200.0})  # 1.2× SMA — below 1.25×
     strong = pd.Series({**base, "volume": 1300.0})  # 1.3× SMA — passes
-    assert mnq.evaluate_entry(weak, or_high=2000.0, or_low=1990.0, trades_today=0) is None
-    ok = mnq.evaluate_entry(strong, or_high=2000.0, or_low=1990.0, trades_today=0)
+    assert mnq.evaluate_entry(weak, or_high=480.5, or_low=479.5, trades_today=0) is None
+    ok = mnq.evaluate_entry(strong, or_high=480.5, or_low=479.5, trades_today=0)
     assert ok is not None and ok.side == "long"
     # volume_mult <= 0 disables the gate
     rules = mnq.MnqRules(volume_mult=0.0)
-    assert mnq.evaluate_entry(weak, or_high=2000.0, or_low=1990.0, trades_today=0, rules=rules) is not None
+    assert mnq.evaluate_entry(weak, or_high=480.5, or_low=479.5, trades_today=0, rules=rules) is not None
 
 
-def test_mnq_size_contracts_floors_to_one_on_small_cash():
-    qty, forced = mnq.size_contracts(1000.0, risk_pts=5.0, point_value=2.0)
-    assert (qty, forced) == (1, True)
+def test_mnq_size_shares_on_small_cash():
+    qty, forced = mnq.size_contracts(100.0, risk_pts=1.0, entry=480.0)
+    assert forced is False
+    assert qty > 0
+    assert qty < 1.0
+
+
+def test_mnq_size_shares_skips_too_wide_stop():
+    qty, forced = mnq.size_contracts(100.0, risk_pts=80.0, entry=480.0)
+    assert (qty, forced) == (0.0, False)
 
 
 def test_no_synthetic_generators():
